@@ -117,7 +117,7 @@ def _footer(canvas, doc):
     canvas.rect(0, 0, width, 0.65 * cm, fill=1, stroke=0)
     canvas.setFillColor(colors.HexColor("#CBD5E1"))
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V12 - Informe por preguntas")
+    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V13 - Informe por preguntas")
     canvas.drawRightString(width - 1.2 * cm, 0.25 * cm, f"Página {doc.page}")
     canvas.restoreState()
 
@@ -177,7 +177,7 @@ def _kpi_table(items: Iterable[tuple[str, str]], styles):
 def _hero_table(nombre_persona: str, edad_persona: Any, fecha_desde: Any, fecha_hasta: Any, styles):
     """Portada compacta con la misma identidad oscura y neon del dashboard."""
     usable = PAGE[0] - 2.4 * cm
-    hero_title = Paragraph("ALTIUM FINANCIERO V12", ParagraphStyle(
+    hero_title = Paragraph("ALTIUM FINANCIERO V13", ParagraphStyle(
         "HeroTitle", parent=styles["title"], fontSize=25, leading=29,
         textColor=WHITE, alignment=TA_LEFT, spaceAfter=3,
     ))
@@ -654,7 +654,7 @@ def generar_informe_financiero_pdf(
     doc = BaseDocTemplate(
         output, pagesize=PAGE, leftMargin=1.2 * cm, rightMargin=1.2 * cm,
         topMargin=.9 * cm, bottomMargin=.9 * cm,
-        title="Altium Financiero V12 - Informe por preguntas", author="Altium Financiero",
+        title="Altium Financiero V13 - Informe por preguntas", author="Altium Financiero",
     )
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="normal")
     doc.addPageTemplates(PageTemplate(id="main", frames=[frame], onPage=_footer))

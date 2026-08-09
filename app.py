@@ -9,7 +9,7 @@ encabezado_principal = st.empty()
 with encabezado_principal.container():
     titulo_col, boton_col = st.columns([5.2, 1.8])
     with titulo_col:
-        st.markdown('<p class="hero-title">Altium Financiero V12</p>', unsafe_allow_html=True)
+        st.markdown('<p class="hero-title">Altium Financiero V13</p>', unsafe_allow_html=True)
     with boton_col:
         st.button(
             "📄 Descargar informe PDF",
@@ -192,7 +192,7 @@ if archivo:
             ],
             index=0,
             help="Selecciona un periodo rápido o elige Personalizado para definir ambas fechas.",
-            key="filtro_periodo_rapido_v12",
+            key="filtro_periodo_rapido_v13",
         )
 
         hoy_ts = pd.Timestamp(fecha_hoy)
@@ -227,7 +227,7 @@ if archivo:
                 min_value=fecha_minima,
                 max_value=fecha_maxima,
                 help="Selecciona la fecha inicial y luego la fecha final en el mismo calendario.",
-                key="filtro_rango_personalizado_v12",
+                key="filtro_rango_personalizado_v13",
             )
             if isinstance(rango_personalizado, (tuple, list)) and len(rango_personalizado) == 2:
                 fecha_desde, fecha_hasta = rango_personalizado
@@ -269,7 +269,7 @@ if archivo:
             default=[],
             placeholder="Todas las categorías",
             help="Déjalo vacío para incluir todas las categorías.",
-            key="filtro_categorias_v12",
+            key="filtro_categorias_v13",
         )
         categorias_sel = categorias_elegidas or categorias
         st.caption("Vacío = todas las categorías")
@@ -281,7 +281,7 @@ if archivo:
                 "GASTOS_SUBCATEGORIA",
             ].dropna().unique()
         )
-        clave_filtro_subcategorias = "filtro_subcategorias_v12"
+        clave_filtro_subcategorias = "filtro_subcategorias_v13"
         if clave_filtro_subcategorias in st.session_state:
             st.session_state[clave_filtro_subcategorias] = [
                 subcategoria
@@ -361,7 +361,7 @@ if archivo:
     with encabezado_principal.container():
         titulo_col, boton_col = st.columns([5.2, 1.8])
         with titulo_col:
-            st.markdown('<p class="hero-title">Altium Financiero V12</p>', unsafe_allow_html=True)
+            st.markdown('<p class="hero-title">Altium Financiero V13</p>', unsafe_allow_html=True)
         with boton_col:
             generar_pdf_click = st.button(
                 "📄 Preparar informe PDF",
@@ -407,7 +407,7 @@ if archivo:
         st.download_button(
             "⬇️ Descargar informe PDF preparado",
             data=st.session_state["informe_pdf_v9"],
-            file_name=st.session_state.get("informe_pdf_v9_nombre", "altium_financiero_v12.pdf"),
+            file_name=st.session_state.get("informe_pdf_v9_nombre", "altium_financiero_v13.pdf"),
             mime="application/pdf",
             use_container_width=True,
             key="descargar_informe_pdf_v9",
@@ -446,7 +446,7 @@ if archivo:
         etiquetas_pestanas,
         horizontal=True,
         label_visibility="collapsed",
-        key="navegacion_principal_v12",
+        key="navegacion_principal_v13",
     )
 
     # Tooltips de navegación: cada pestaña explica la pregunta que responde.
@@ -660,7 +660,13 @@ if archivo:
                 hole=0.62,
                 marker=dict(colors=["#38BDF8", "#FB7185"], line=dict(color="#000000", width=2)),
                 textinfo="percent+label",
-                hovertemplate="%{label}<br>Valor: $%{value:,.0f}<br>Participación: %{percent}<extra></extra>",
+                hovertemplate=(
+                    "<b>🧩 %{label}</b><br><br>"
+                    "💰 Valor acumulado: <b>$%{value:,.0f}</b><br>"
+                    "📊 Participación en el gasto: %{percent}<br>"
+                    "📌 Comparación entre gastos fijos y variables"
+                    "<extra></extra>"
+                ),
             ))
             fig_comp.add_annotation(text=f"${total_gastos:,.0f}<br><span style='font-size:12px'>Total gastos</span>", x=0.5, y=0.5, showarrow=False, font=dict(color="#F8FAFC", size=17))
             fig_comp.update_layout(height=360, margin=dict(t=55,b=20,l=20,r=20))
@@ -718,7 +724,16 @@ if archivo:
                 color="Indicador",
                 color_discrete_sequence=PALETA_NEON,
             )
-            fig_barras_pct.update_traces(texttemplate="%{text:.1f}%", textposition="outside", hovertemplate="%{y}: %{x:.1f}%<extra></extra>")
+            fig_barras_pct.update_traces(
+                texttemplate="%{text:.1f}%",
+                textposition="outside",
+                hovertemplate=(
+                    "<b>📊 %{y}</b><br><br>"
+                    "🎯 Resultado: <b>%{x:.1f}%</b><br>"
+                    "📌 Indicador calculado sobre el período filtrado"
+                    "<extra></extra>"
+                ),
+            )
             fig_barras_pct.update_layout(height=360, showlegend=False, yaxis=dict(autorange="reversed"), margin=dict(t=55,b=35,l=10,r=30))
             st.plotly_chart(
                 preparar_grafico_resumen(
@@ -737,9 +752,17 @@ if archivo:
         with ev1:
             resumen_plot = resumen_flujo.copy()
             fig_evo = go.Figure()
-            fig_evo.add_trace(go.Bar(x=resumen_plot["MES"], y=resumen_plot["Ingresos"], name="Ingresos", marker_color=COLOR_INGRESOS, opacity=0.72, hovertemplate="Ingresos: $%{y:,.0f}<extra></extra>"))
-            fig_evo.add_trace(go.Bar(x=resumen_plot["MES"], y=resumen_plot["Gastos"], name="Gastos", marker_color=COLOR_GASTOS, opacity=0.72, hovertemplate="Gastos: $%{y:,.0f}<extra></extra>"))
-            fig_evo.add_trace(go.Scatter(x=resumen_plot["MES"], y=resumen_plot["Balance"], name="Ahorro / Balance", mode="lines+markers", line=dict(color=COLOR_BALANCE, width=4, shape="spline"), marker=dict(size=10), hovertemplate="Balance: $%{y:,.0f}<extra></extra>"))
+            datos_evolucion_resumen = resumen_plot[["Ingresos", "Gastos", "Balance"]]
+            tooltip_evolucion_resumen = (
+                "<b>📅 %{x}</b><br><br>"
+                "💵 Ingresos: $%{customdata[0]:,.0f}<br>"
+                "🧾 Gastos: $%{customdata[1]:,.0f}<br>"
+                "⚖️ Balance: <b>$%{customdata[2]:,.0f}</b>"
+                "<extra></extra>"
+            )
+            fig_evo.add_trace(go.Bar(x=resumen_plot["MES"], y=resumen_plot["Ingresos"], name="Ingresos", marker_color=COLOR_INGRESOS, opacity=0.72, customdata=datos_evolucion_resumen, hovertemplate=tooltip_evolucion_resumen))
+            fig_evo.add_trace(go.Bar(x=resumen_plot["MES"], y=resumen_plot["Gastos"], name="Gastos", marker_color=COLOR_GASTOS, opacity=0.72, customdata=datos_evolucion_resumen, hovertemplate=tooltip_evolucion_resumen))
+            fig_evo.add_trace(go.Scatter(x=resumen_plot["MES"], y=resumen_plot["Balance"], name="Ahorro / Balance", mode="lines+markers", line=dict(color=COLOR_BALANCE, width=4, shape="spline"), marker=dict(size=10), customdata=datos_evolucion_resumen, hovertemplate=tooltip_evolucion_resumen))
             fig_evo.update_layout(barmode="group", height=430, xaxis=dict(categoryorder="array", categoryarray=MESES_ORDEN), yaxis=dict(tickformat=",.0f"), legend=dict(orientation="h", y=1.08), margin=dict(t=70,b=35,l=35,r=20))
             st.plotly_chart(
                 preparar_grafico_resumen(
@@ -766,7 +789,16 @@ if archivo:
                 color="Concepto",
                 color_discrete_map={"Gasto proyectado a diciembre": COLOR_GASTOS, "Meta anual presupuesto": COLOR_PRESUPUESTO},
             )
-            fig_proy.update_traces(texttemplate="$%{text:,.0f}", textposition="outside", hovertemplate="%{x}<br>$%{y:,.0f}<extra></extra>")
+            fig_proy.update_traces(
+                texttemplate="$%{text:,.0f}",
+                textposition="outside",
+                hovertemplate=(
+                    "<b>🔮 %{x}</b><br><br>"
+                    "💰 Valor estimado: <b>$%{y:,.0f}</b><br>"
+                    "📅 Proyección calculada al cierre de diciembre"
+                    "<extra></extra>"
+                ),
+            )
             fig_proy.update_layout(height=430, showlegend=False, margin=dict(t=70,b=70,l=30,r=20))
             st.plotly_chart(
                 preparar_grafico_resumen(
@@ -1087,7 +1119,16 @@ if archivo:
             color="Periodo",
             color_discrete_sequence=["#38BDF8", "#C084FC", "#34D399"],
         )
-        fig_prom.update_traces(texttemplate="$%{text:,.0f}", textposition="outside", hovertemplate="%{x}: $%{y:,.0f}<extra></extra>")
+        fig_prom.update_traces(
+            texttemplate="$%{text:,.0f}",
+            textposition="outside",
+            hovertemplate=(
+                "<b>⏱️ Promedio %{x}</b><br><br>"
+                "💰 Gasto promedio: <b>$%{y:,.0f}</b><br>"
+                "📅 Calculado con las fechas del período filtrado"
+                "<extra></extra>"
+            ),
+        )
         fig_prom.update_layout(height=360, showlegend=False, margin=dict(t=40,b=30,l=30,r=30))
         st.plotly_chart(
             preparar_grafico_resumen(
@@ -1112,7 +1153,12 @@ if archivo:
                 color="#38BDF8",
                 line=dict(color="#A78BFA", width=1.3),
             ),
-            hovertemplate="Rango: $%{x:,.0f}<br>Frecuencia: %{y}<extra></extra>",
+            hovertemplate=(
+                "<b>📦 Rango de gasto: $%{x:,.0f}</b><br><br>"
+                "🔢 Transacciones en este rango: <b>%{y}</b><br>"
+                "📊 Una barra más alta indica mayor frecuencia de movimientos"
+                "<extra></extra>"
+            ),
         )
         fig_hist.update_layout(
             hoverlabel=dict(
@@ -1199,7 +1245,15 @@ if archivo:
                 mode="lines+markers+text", line=dict(color=COLOR_INGRESOS, width=4, shape="spline"),
                 marker=dict(size=10, color=COLOR_INGRESOS), text=flujo["Ingresos"],
                 texttemplate="$%{text:,.0f}", textposition="top center",
-                hovertemplate="<b>%{x}</b><br>Ingresos: $%{y:,.0f}<extra></extra>",
+                customdata=flujo[["Gastos", "Presupuesto mensual", "Balance"]],
+                hovertemplate=(
+                    "<b>📅 %{x}</b><br><br>"
+                    "💵 Ingresos: <b>$%{y:,.0f}</b><br>"
+                    "🧾 Gastos: $%{customdata[0]:,.0f}<br>"
+                    "🎯 Presupuesto: $%{customdata[1]:,.0f}<br>"
+                    "⚖️ Balance: $%{customdata[2]:,.0f}"
+                    "<extra></extra>"
+                ),
             ))
             fig_cmp.add_trace(go.Scatter(
                 x=flujo["MES"], y=flujo["Presupuesto mensual"], name="Presupuesto Datos!O19",
@@ -1211,7 +1265,14 @@ if archivo:
                 x=flujo["MES"], y=flujo["Balance"], name="Balance",
                 mode="lines+markers", line=dict(color="#B026FF", width=2.4),
                 marker=dict(size=7, color="#B026FF"),
-                hovertemplate="<b>%{x}</b><br>Balance: $%{y:,.0f}<extra></extra>",
+                customdata=flujo[["Ingresos", "Gastos"]],
+                hovertemplate=(
+                    "<b>⚖️ Balance de %{x}</b><br><br>"
+                    "💵 Ingresos: $%{customdata[0]:,.0f}<br>"
+                    "🧾 Gastos: $%{customdata[1]:,.0f}<br>"
+                    "💰 Resultado neto: <b>$%{y:,.0f}</b>"
+                    "<extra></extra>"
+                ),
             ))
             fig_cmp.update_layout(
                 hovermode="x unified",
@@ -1226,12 +1287,36 @@ if archivo:
         col3, col4 = st.columns(2)
         with col3:
             fig_acum = px.area(flujo, x="MES", y="Balance acumulado", markers=True, color_discrete_sequence=["#00F0FF"])
-            fig_acum.update_traces(hovertemplate="Mes: %{x}<br>Balance acumulado: $%{y:,.0f}<extra></extra>", line=dict(width=3), marker=dict(size=7, color="#00F0FF"), fillcolor="rgba(0,240,255,0.18)")
+            fig_acum.update_traces(
+                customdata=flujo[["Balance", "Ingresos", "Gastos"]],
+                hovertemplate=(
+                    "<b>💼 Flujo acumulado · %{x}</b><br><br>"
+                    "⚖️ Balance del mes: $%{customdata[0]:,.0f}<br>"
+                    "💵 Ingresos: $%{customdata[1]:,.0f}<br>"
+                    "🧾 Gastos: $%{customdata[2]:,.0f}<br>"
+                    "📈 Balance acumulado: <b>$%{y:,.0f}</b>"
+                    "<extra></extra>"
+                ),
+                line=dict(width=3), marker=dict(size=7, color="#00F0FF"),
+                fillcolor="rgba(0,240,255,0.18)",
+            )
             st.plotly_chart(estilo_grafico(fig_acum, "Flujo de caja acumulado"), use_container_width=True)
         with col4:
             fig_ahorro = px.line(flujo, x="MES", y="Capacidad ahorro %", markers=True, color_discrete_sequence=["#00F0FF"])
             fig_ahorro.add_hline(y=20, line_dash="dot", line_color="#FFEE00", annotation_text="Meta 20%")
-            fig_ahorro.update_traces(hovertemplate="Mes: %{x}<br>Ahorro: %{y:.1f}%<extra></extra>", marker=dict(size=8))
+            fig_ahorro.update_traces(
+                customdata=flujo[["Balance", "Ingresos", "Gastos"]],
+                hovertemplate=(
+                    "<b>🏦 Capacidad de ahorro · %{x}</b><br><br>"
+                    "📊 Ahorro del mes: <b>%{y:.1f}%</b><br>"
+                    "⚖️ Balance: $%{customdata[0]:,.0f}<br>"
+                    "💵 Ingresos: $%{customdata[1]:,.0f}<br>"
+                    "🧾 Gastos: $%{customdata[2]:,.0f}<br>"
+                    "🎯 Referencia recomendada: 20%"
+                    "<extra></extra>"
+                ),
+                marker=dict(size=8),
+            )
             st.plotly_chart(estilo_grafico(fig_ahorro, "Capacidad de ahorro mensual"), use_container_width=True)
 
         st.markdown("#### Resumen mensual ejecutivo")
@@ -1436,11 +1521,25 @@ if archivo:
                         .agg(Monto=("GASTOS_CANTIDAD", "sum"), Transacciones=("GASTOS_CANTIDAD", "count"))
                         .sort_values("Monto", ascending=False).head(12)
                     )
+                    descripcion_resumen["Promedio"] = (
+                        descripcion_resumen["Monto"] / descripcion_resumen["Transacciones"]
+                    )
                     fig_desc = px.bar(
                         descripcion_resumen.sort_values("Monto"), x="Monto", y="GASTOS_DESCRIPCION",
-                        orientation="h", text="Monto", color="Monto", color_continuous_scale="Turbo"
+                        orientation="h", text="Monto", color="Monto", color_continuous_scale="Turbo",
+                        custom_data=["Transacciones", "Promedio"],
                     )
-                    fig_desc.update_traces(texttemplate="$%{text:,.0f}", textposition="outside")
+                    fig_desc.update_traces(
+                        texttemplate="$%{text:,.0f}",
+                        textposition="outside",
+                        hovertemplate=(
+                            "<b>🧾 %{y}</b><br><br>"
+                            "💰 Gasto acumulado: <b>$%{x:,.0f}</b><br>"
+                            "🔁 Número de movimientos: %{customdata[0]}<br>"
+                            "📊 Promedio por movimiento: $%{customdata[1]:,.0f}"
+                            "<extra></extra>"
+                        ),
+                    )
                     st.plotly_chart(estilo_grafico(fig_desc, "Descripciones con mayor gasto acumulado"), use_container_width=True)
 
         st.divider()
@@ -1486,24 +1585,100 @@ if archivo:
             .rename(columns={"GASTOS_SUBCATEGORIA": "Subcategoría"})
         ) if not analisis_mov.empty else pd.DataFrame(columns=["Subcategoría", "Monto", "Frecuencia", "Promedio"])
 
-        fr1, fr2 = st.columns([1.35, 1])
-        with fr1:
-            fig_frecuencia = px.scatter(
-                frecuencia_sub,
-                x="Frecuencia",
-                y="Monto",
-                size="Promedio",
-                hover_name="Subcategoría",
-                text="Subcategoría",
-                title="Frecuencia frente a monto por subcategoría",
+        frecuencia_sub["Subcategoría"] = frecuencia_sub["Subcategoría"].fillna(
+            "Sin subcategoría"
+        )
+        frecuencia_sub["Etiqueta"] = ""
+        frecuencia_sub["Posición etiqueta"] = "top center"
+        indices_etiquetados = list(dict.fromkeys(
+            frecuencia_sub.nlargest(10, "Monto").index.tolist()
+            + frecuencia_sub.nlargest(6, "Frecuencia").index.tolist()
+        ))
+        posiciones_etiqueta = [
+            "top center", "bottom center", "top left", "top right",
+            "bottom left", "bottom right", "middle left", "middle right",
+        ]
+        for orden_etiqueta, indice_etiqueta in enumerate(indices_etiquetados):
+            frecuencia_sub.loc[indice_etiqueta, "Etiqueta"] = frecuencia_sub.loc[
+                indice_etiqueta, "Subcategoría"
+            ]
+            frecuencia_sub.loc[indice_etiqueta, "Posición etiqueta"] = (
+                posiciones_etiqueta[orden_etiqueta % len(posiciones_etiqueta)]
             )
-            fig_frecuencia.update_traces(textposition="top center", hovertemplate=(
-                "<b>%{hovertext}</b><br>Transacciones: %{x}<br>Monto: $%{y:,.0f}<br>Promedio: $%{marker.size:,.0f}<extra></extra>"
-            ))
-            st.plotly_chart(estilo_grafico(fig_frecuencia, "Frecuencia frente a monto por subcategoría"), use_container_width=True)
-        with fr2:
-            st.markdown("#### Cobros y descripciones recurrentes")
-            st.dataframe(recurrentes.head(15), use_container_width=True, hide_index=True)
+
+        fig_frecuencia = px.scatter(
+            frecuencia_sub,
+            x="Frecuencia",
+            y="Monto",
+            size="Promedio",
+            size_max=34,
+            color="Monto",
+            color_continuous_scale=["#075985", "#00E5FF", "#00FF88", "#FFEE00"],
+            hover_name="Subcategoría",
+            text="Etiqueta",
+            custom_data=["Promedio"],
+            title="Frecuencia frente a monto por subcategoría",
+        )
+        fig_frecuencia.update_traces(
+            textposition=frecuencia_sub["Posición etiqueta"].tolist(),
+            textfont=dict(color="#F8FAFC", size=10),
+            marker=dict(
+                opacity=0.82,
+                line=dict(color="rgba(255,255,255,0.58)", width=1),
+            ),
+            hovertemplate=(
+                "<b>%{hovertext}</b><br>"
+                "Transacciones: %{x}<br>"
+                "Monto acumulado: $%{y:,.0f}<br>"
+                "Promedio por movimiento: $%{customdata[0]:,.0f}"
+                "<extra></extra>"
+            ),
+        )
+        fig_frecuencia.update_layout(
+            height=650,
+            margin=dict(l=85, r=85, t=85, b=75),
+            coloraxis_colorbar=dict(
+                title="Monto acumulado",
+                tickprefix="$",
+                tickformat="~s",
+            ),
+            hoverlabel=dict(
+                bgcolor="#07111F",
+                bordercolor="#00E5FF",
+                font=dict(color="#F8FAFC", size=13),
+            ),
+        )
+        fig_frecuencia.update_xaxes(
+            title="Número de transacciones",
+            dtick=1,
+            automargin=True,
+        )
+        fig_frecuencia.update_yaxes(
+            title="Monto acumulado",
+            tickprefix="$",
+            tickformat="~s",
+            automargin=True,
+        )
+        st.caption(
+            "Se etiquetan las subcategorías de mayor monto o frecuencia para evitar cruces. "
+            "Pasa el cursor sobre cualquier burbuja para ver su detalle."
+        )
+        fig_frecuencia = estilo_grafico(
+            fig_frecuencia,
+            "Frecuencia frente a monto por subcategoría",
+        )
+        fig_frecuencia.update_layout(margin=dict(l=85, r=85, t=85, b=75))
+        st.plotly_chart(
+            fig_frecuencia,
+            use_container_width=True,
+        )
+
+        st.markdown("#### Cobros y descripciones recurrentes")
+        st.caption(
+            "Listado de descripciones que aparecen dos o más veces en el período filtrado, "
+            "ordenadas por su monto acumulado."
+        )
+        st.dataframe(recurrentes.head(15), use_container_width=True, hide_index=True)
 
         st.divider()
         st.markdown("## 7. Calidad de los registros")
@@ -1732,7 +1907,15 @@ if archivo:
             text=tendencia["Ingresos"],
             texttemplate="$%{text:,.0f}",
             textposition="top center",
-            hovertemplate="<b>%{x}</b><br>Ingresos: $%{y:,.0f}<extra></extra>",
+            customdata=tendencia[["Gastos", "Balance", "Presupuesto mensual"]],
+            hovertemplate=(
+                "<b>📅 %{x}</b><br><br>"
+                "💵 Ingresos: <b>$%{y:,.0f}</b><br>"
+                "🧾 Gastos: $%{customdata[0]:,.0f}<br>"
+                "⚖️ Balance: $%{customdata[1]:,.0f}<br>"
+                "🎯 Presupuesto: $%{customdata[2]:,.0f}"
+                "<extra></extra>"
+            ),
         ))
 
         fig_tend.update_layout(
@@ -1769,7 +1952,12 @@ if archivo:
             texttemplate="$%{text:,.0f}",
             textposition="outside",
             customdata=tendencia[["Estado balance"]],
-            hovertemplate="<b>%{x}</b><br>Balance: $%{y:,.0f}<br>%{customdata[0]}<extra></extra>",
+            hovertemplate=(
+                "<b>⚖️ Balance de %{x}</b><br><br>"
+                "💰 Resultado neto: <b>$%{y:,.0f}</b><br>"
+                "📌 %{customdata[0]}"
+                "<extra></extra>"
+            ),
         ))
         fig_balance.add_hline(y=0, line_width=1, line_dash="dot", line_color="rgba(226,232,240,0.5)")
         fig_balance.update_layout(
@@ -1861,6 +2049,18 @@ if archivo:
             periodo_act = pd.Period(clave_mes_act, freq="M")
             mes_ant = f"{MESES_ORDEN[periodo_ant.month - 1].title()} {periodo_ant.year}"
             mes_act = f"{MESES_ORDEN[periodo_act.month - 1].title()} {periodo_act.year}"
+
+            def nombre_ranking(valor, reemplazo):
+                texto = limpiar_undefined_texto(valor, "").strip()
+                return texto if texto else reemplazo
+
+            datos_cambio["GASTOS_CATEGORIA"] = datos_cambio[
+                "GASTOS_CATEGORIA"
+            ].map(lambda valor: nombre_ranking(valor, "Sin categoría"))
+            datos_cambio["GASTOS_SUBCATEGORIA"] = datos_cambio[
+                "GASTOS_SUBCATEGORIA"
+            ].map(lambda valor: nombre_ranking(valor, "Sin subcategoría"))
+
             comp_categorias = (
                 datos_cambio.pivot_table(
                     index="GASTOS_CATEGORIA",
@@ -1876,11 +2076,7 @@ if archivo:
             if clave_mes_act not in comp_categorias.columns:
                 comp_categorias[clave_mes_act] = 0.0
             comp_categorias["GASTOS_CATEGORIA"] = comp_categorias["GASTOS_CATEGORIA"].apply(
-                lambda categoria: (
-                    "Sin categoría"
-                    if str(categoria).strip().lower() in {"", "undefined", "none", "nan"}
-                    else str(categoria)
-                )
+                lambda categoria: nombre_ranking(categoria, "Sin categoría")
             )
             comp_categorias["Cambio"] = (
                 comp_categorias[clave_mes_act] - comp_categorias[clave_mes_ant]
@@ -1912,6 +2108,7 @@ if archivo:
                         },
                     )
                     fig_suben.update_traces(
+                        name="Categorías con aumento",
                         texttemplate="$%{text:,.0f}",
                         textposition="outside",
                         marker_color="#FF2E6E",
@@ -1931,7 +2128,13 @@ if archivo:
                         showlegend=False,
                         height=390,
                     )
-                    st.plotly_chart(estilo_grafico(fig_suben), use_container_width=True)
+                    st.plotly_chart(
+                        estilo_grafico(
+                            fig_suben,
+                            f"Categorías donde aumentó el gasto · {mes_act} vs {mes_ant}",
+                        ),
+                        use_container_width=True,
+                    )
                 else:
                     st.success(f"Ninguna categoría aumentó su gasto en {mes_act} frente a {mes_ant}.")
             with col_bajan:
@@ -1953,6 +2156,7 @@ if archivo:
                         },
                     )
                     fig_bajan.update_traces(
+                        name="Categorías con reducción",
                         texttemplate="$%{text:,.0f}",
                         textposition="outside",
                         marker_color="#00FF9C",
@@ -1972,9 +2176,165 @@ if archivo:
                         showlegend=False,
                         height=390,
                     )
-                    st.plotly_chart(estilo_grafico(fig_bajan), use_container_width=True)
+                    st.plotly_chart(
+                        estilo_grafico(
+                            fig_bajan,
+                            f"Categorías donde bajó el gasto · {mes_act} vs {mes_ant}",
+                        ),
+                        use_container_width=True,
+                    )
                 else:
                     st.info(f"Ninguna categoría redujo su gasto en {mes_act} frente a {mes_ant}.")
+
+            st.markdown("### Ranking de cambios por subcategoría")
+            st.caption(
+                "Muestra los conceptos específicos que explican el aumento o la reducción "
+                f"del gasto entre {mes_ant} y {mes_act}."
+            )
+            comp_subcategorias = (
+                datos_cambio.pivot_table(
+                    index=["GASTOS_CATEGORIA", "GASTOS_SUBCATEGORIA"],
+                    columns="_PERIODO_CAMBIO",
+                    values="GASTOS_CANTIDAD",
+                    aggfunc="sum",
+                    fill_value=0,
+                )
+                .reset_index()
+            )
+            if clave_mes_ant not in comp_subcategorias.columns:
+                comp_subcategorias[clave_mes_ant] = 0.0
+            if clave_mes_act not in comp_subcategorias.columns:
+                comp_subcategorias[clave_mes_act] = 0.0
+            comp_subcategorias["Concepto"] = (
+                comp_subcategorias["GASTOS_CATEGORIA"].map(
+                    lambda valor: nombre_ranking(valor, "Sin categoría")
+                )
+                + " › "
+                + comp_subcategorias["GASTOS_SUBCATEGORIA"].map(
+                    lambda valor: nombre_ranking(valor, "Sin subcategoría")
+                )
+            )
+            comp_subcategorias["Cambio"] = (
+                comp_subcategorias[clave_mes_act] - comp_subcategorias[clave_mes_ant]
+            )
+            comp_subcategorias["Cambio %"] = comp_subcategorias.apply(
+                lambda fila: (
+                    fila["Cambio"] / abs(fila[clave_mes_ant]) * 100
+                    if fila[clave_mes_ant] else 0.0
+                ),
+                axis=1,
+            )
+            comp_subcategorias["Variación"] = comp_subcategorias.apply(
+                lambda fila: (
+                    f"{fila['Cambio %']:+.1f}%"
+                    if fila[clave_mes_ant] else "Nuevo gasto en el mes"
+                ),
+                axis=1,
+            )
+
+            col_subcat_suben, col_subcat_bajan = st.columns(2)
+            with col_subcat_suben:
+                subcat_suben = comp_subcategorias[
+                    comp_subcategorias["Cambio"] > 0
+                ].nlargest(8, "Cambio").copy()
+                if not subcat_suben.empty:
+                    fig_subcat_suben = px.bar(
+                        subcat_suben,
+                        x="Cambio",
+                        y="Concepto",
+                        orientation="h",
+                        text="Cambio",
+                        labels={
+                            "Cambio": "Aumento del gasto",
+                            "Concepto": "Subcategoría",
+                        },
+                    )
+                    fig_subcat_suben.update_traces(
+                        name="Subcategorías con aumento",
+                        texttemplate="$%{text:,.0f}",
+                        textposition="outside",
+                        marker_color="#FF2E6E",
+                        customdata=subcat_suben[
+                            [clave_mes_ant, clave_mes_act, "Variación"]
+                        ],
+                        hovertemplate=(
+                            "<b>%{y}</b><br>"
+                            f"Gasto en {mes_ant}: $%{{customdata[0]:,.0f}}<br>"
+                            f"Gasto en {mes_act}: $%{{customdata[1]:,.0f}}<br>"
+                            "Aumento: <b>$%{x:,.0f}</b><br>"
+                            "Variación: %{customdata[2]}<extra></extra>"
+                        ),
+                    )
+                    fig_subcat_suben.update_layout(
+                        xaxis_title="Aumento del gasto",
+                        yaxis_title="Subcategoría",
+                        yaxis=dict(autorange="reversed"),
+                        showlegend=False,
+                        height=430,
+                    )
+                    st.plotly_chart(
+                        estilo_grafico(
+                            fig_subcat_suben,
+                            f"Subcategorías donde aumentó el gasto · {mes_act} vs {mes_ant}",
+                        ),
+                        use_container_width=True,
+                    )
+                else:
+                    st.success(
+                        f"Ninguna subcategoría aumentó su gasto en {mes_act} frente a {mes_ant}."
+                    )
+
+            with col_subcat_bajan:
+                subcat_bajan = comp_subcategorias[
+                    comp_subcategorias["Cambio"] < 0
+                ].nsmallest(8, "Cambio").copy()
+                if not subcat_bajan.empty:
+                    subcat_bajan["Reducción"] = -subcat_bajan["Cambio"]
+                    fig_subcat_bajan = px.bar(
+                        subcat_bajan,
+                        x="Reducción",
+                        y="Concepto",
+                        orientation="h",
+                        text="Reducción",
+                        labels={
+                            "Reducción": "Reducción del gasto",
+                            "Concepto": "Subcategoría",
+                        },
+                    )
+                    fig_subcat_bajan.update_traces(
+                        name="Subcategorías con reducción",
+                        texttemplate="$%{text:,.0f}",
+                        textposition="outside",
+                        marker_color="#00FF9C",
+                        customdata=subcat_bajan[
+                            [clave_mes_ant, clave_mes_act, "Variación"]
+                        ],
+                        hovertemplate=(
+                            "<b>%{y}</b><br>"
+                            f"Gasto en {mes_ant}: $%{{customdata[0]:,.0f}}<br>"
+                            f"Gasto en {mes_act}: $%{{customdata[1]:,.0f}}<br>"
+                            "Reducción: <b>$%{x:,.0f}</b><br>"
+                            "Variación: %{customdata[2]}<extra></extra>"
+                        ),
+                    )
+                    fig_subcat_bajan.update_layout(
+                        xaxis_title="Reducción del gasto",
+                        yaxis_title="Subcategoría",
+                        yaxis=dict(autorange="reversed"),
+                        showlegend=False,
+                        height=430,
+                    )
+                    st.plotly_chart(
+                        estilo_grafico(
+                            fig_subcat_bajan,
+                            f"Subcategorías donde bajó el gasto · {mes_act} vs {mes_ant}",
+                        ),
+                        use_container_width=True,
+                    )
+                else:
+                    st.info(
+                        f"Ninguna subcategoría redujo su gasto en {mes_act} frente a {mes_ant}."
+                    )
         else:
             st.info("Selecciona al menos un mes con gastos para calcular el cambio frente al mes anterior.")
 
@@ -1992,7 +2352,15 @@ if archivo:
                 x=tendencia["MES"], y=tendencia["Balance"],
                 marker_color=[COLOR_INGRESOS if v >= 0 else COLOR_GASTOS for v in tendencia["Balance"]],
                 text=tendencia["Balance"], texttemplate="$%{text:,.0f}", textposition="outside",
-                hovertemplate="<b>%{x}</b><br>Ahorro: $%{y:,.0f}<extra></extra>"
+                customdata=tendencia[["Ingresos", "Gastos", "Ahorro %"]],
+                hovertemplate=(
+                    "<b>🏦 Ahorro mensual · %{x}</b><br><br>"
+                    "💵 Ingresos: $%{customdata[0]:,.0f}<br>"
+                    "🧾 Gastos: $%{customdata[1]:,.0f}<br>"
+                    "💰 Ahorro neto: <b>$%{y:,.0f}</b><br>"
+                    "📊 Capacidad de ahorro: %{customdata[2]:.1f}%"
+                    "<extra></extra>"
+                )
             ))
             fig_ahorro_t.update_layout(height=390, showlegend=False, xaxis=dict(categoryorder="array", categoryarray=MESES_ORDEN))
             st.plotly_chart(estilo_grafico(fig_ahorro_t, "Ahorro mensual en pesos"), use_container_width=True)
@@ -2000,7 +2368,17 @@ if archivo:
             fig_ahorro_pct_t = go.Figure(go.Scatter(
                 x=tendencia["MES"], y=tendencia["Ahorro %"], mode="lines+markers+text",
                 line=dict(color="#2DD4BF", width=4, shape="spline"), marker=dict(size=10),
-                text=tendencia["Ahorro %"], texttemplate="%{text:.1f}%", textposition="top center"
+                text=tendencia["Ahorro %"], texttemplate="%{text:.1f}%", textposition="top center",
+                customdata=tendencia[["Balance", "Ingresos", "Gastos"]],
+                hovertemplate=(
+                    "<b>📊 Capacidad de ahorro · %{x}</b><br><br>"
+                    "🏦 Porcentaje ahorrado: <b>%{y:.1f}%</b><br>"
+                    "⚖️ Balance: $%{customdata[0]:,.0f}<br>"
+                    "💵 Ingresos: $%{customdata[1]:,.0f}<br>"
+                    "🧾 Gastos: $%{customdata[2]:,.0f}<br>"
+                    "🎯 Referencia: 20%"
+                    "<extra></extra>"
+                )
             ))
             fig_ahorro_pct_t.add_hline(y=20, line_dash="dot", line_color="#FFEE00", annotation_text="Referencia 20%")
             fig_ahorro_pct_t.update_layout(height=390, showlegend=False, xaxis=dict(categoryorder="array", categoryarray=MESES_ORDEN))
@@ -2043,7 +2421,7 @@ if archivo:
                 ["Últimos 3 meses", "Últimos 12 meses", "Últimos 24 meses"],
                 index=1,
                 help="Limita la altura del mapa tomando los meses más recientes del período filtrado.",
-                key="calendario_ventana_meses_v12",
+                key="calendario_ventana_meses_v13",
             )
         with control_promedio_cal:
             modo_promedio_calendario = st.radio(
@@ -2055,7 +2433,7 @@ if archivo:
                     "Período filtrado usa un único promedio para todas las celdas. "
                     "Cada mes calcula un promedio diferente para cada fila."
                 ),
-                key="calendario_base_promedio_v12",
+                key="calendario_base_promedio_v13",
             )
         cantidad_meses_calendario = {
             "Últimos 3 meses": 3,
@@ -2427,12 +2805,6 @@ if archivo:
         st.plotly_chart(fig_sub_heat, use_container_width=True)
 
         st.divider()
-        st.markdown("## Proyección de ahorro a 10, 20 y 30 años")
-        st.caption(
-            "Prolonga el ritmo mensual promedio de los salarios laborales y los gastos del período filtrado. "
-            "Es un escenario descriptivo: no incluye inflación, rendimientos de inversión ni intereses de deuda."
-        )
-
         ingresos_laborales_proyeccion = ingresos_filtrados.copy()
         if not ingresos_laborales_proyeccion.empty:
             ingresos_laborales_proyeccion["INGRESOS_FECHA"] = pd.to_datetime(
@@ -2460,6 +2832,14 @@ if archivo:
             gastos_proyeccion["PERIODO_PROYECCION"] = (
                 gastos_proyeccion["GASTOS_FECHA"].dt.to_period("M")
             )
+
+        valor_real_inversion = float(
+            ingresos_laborales_proyeccion["INGRESOS_CANTIDAD"].sum()
+            if not ingresos_laborales_proyeccion.empty else 0.0
+        ) - float(
+            gastos_proyeccion["GASTOS_CANTIDAD"].sum()
+            if not gastos_proyeccion.empty else 0.0
+        )
 
         salarios_mensuales_proyeccion = (
             ingresos_laborales_proyeccion.groupby("PERIODO_PROYECCION")["INGRESOS_CANTIDAD"].sum()
@@ -2493,6 +2873,196 @@ if archivo:
                 salario_mensual_tendencia - gasto_mensual_tendencia
             )
 
+            maximo_inversion_disponible = max(int(round(valor_real_inversion)), 0)
+            maximo_inversion_texto = f"${maximo_inversion_disponible:,.0f}".replace(",", ".")
+            clave_inversion_inicial = "tendencias_capital_inicial_proyeccion_v13"
+            if clave_inversion_inicial not in st.session_state:
+                st.session_state[clave_inversion_inicial] = maximo_inversion_disponible
+            else:
+                st.session_state[clave_inversion_inicial] = min(
+                    max(int(st.session_state[clave_inversion_inicial]), 0),
+                    maximo_inversion_disponible,
+                )
+
+            st.markdown(
+                """
+                <style>
+                .st-key-tendencias_control_inversion,
+                .st-key-tendencias_control_tasa {
+                    background:linear-gradient(145deg,rgba(0,230,118,.18),rgba(0,45,25,.76));
+                    border:1px solid rgba(0,255,136,.72) !important;
+                    border-radius:18px;
+                    box-shadow:0 0 24px rgba(0,255,136,.18);
+                    min-height:250px;
+                }
+                .st-key-tendencias_control_inversion [data-testid="stSlider"] > div,
+                .st-key-tendencias_control_tasa [data-testid="stSlider"] > div {
+                    padding-top:.15rem;
+                }
+                .st-key-tendencias_control_inversion [data-testid="stSlider"],
+                .st-key-tendencias_control_tasa [data-testid="stSlider"] {
+                    --primary-color:#00FF88;
+                    accent-color:#00FF88;
+                }
+                .st-key-tendencias_control_inversion div[data-baseweb="slider"] [role="slider"],
+                .st-key-tendencias_control_tasa div[data-baseweb="slider"] [role="slider"] {
+                    background:#00FF88 !important;
+                    border-color:#B7FFD8 !important;
+                    box-shadow:0 0 0 4px rgba(0,255,136,.18),0 0 16px rgba(0,255,136,.72) !important;
+                }
+                .st-key-tendencias_control_inversion div[data-baseweb="slider"] > div > div,
+                .st-key-tendencias_control_tasa div[data-baseweb="slider"] > div > div {
+                    background:linear-gradient(90deg,#064E3B,#00FF88) !important;
+                }
+                .st-key-tendencias_control_inversion [data-baseweb="slider"] *,
+                .st-key-tendencias_control_tasa [data-baseweb="slider"] *,
+                .st-key-tendencias_control_inversion [data-testid="stTickBar"] *,
+                .st-key-tendencias_control_tasa [data-testid="stTickBar"] * {
+                    color:#B7FFD8 !important;
+                    border-color:#5EEBAD !important;
+                }
+                .st-key-tendencias_control_inversion [data-testid="stThumbValue"],
+                .st-key-tendencias_control_tasa [data-testid="stThumbValue"],
+                .st-key-tendencias_control_inversion [data-testid="stSliderThumbValue"],
+                .st-key-tendencias_control_tasa [data-testid="stSliderThumbValue"] {
+                    background:#123D31 !important;
+                    color:#DFFFF0 !important;
+                    border:1px solid #5EEBAD !important;
+                }
+                .proyeccion-control-disponible {
+                    display:inline-block;
+                    margin-top:8px;
+                    padding:5px 10px;
+                    border-radius:999px;
+                    color:#CFFFE3;
+                    background:rgba(0,255,136,.10);
+                    border:1px solid rgba(94,235,173,.34);
+                    font-size:12px;
+                }
+                .proyeccion-control-numero {
+                    margin-top:5px;
+                    color:#8FFFC4;
+                    font-size:32px;
+                    line-height:1.05;
+                    font-weight:850;
+                    letter-spacing:-.035em;
+                    font-variant-numeric:tabular-nums;
+                    text-shadow:0 0 18px rgba(0,255,136,.34);
+                }
+                .proyeccion-control-detalle {
+                    margin-top:8px;
+                    color:#C8E8D5;
+                    font-size:12px;
+                    line-height:1.45;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            controles_proyeccion = st.columns(2)
+            with controles_proyeccion[0]:
+                with st.container(border=True, key="tendencias_control_inversion"):
+                    st.markdown(
+                        f"""
+                        <div style="min-height:58px;">
+                            <div style="font-size:13px;color:#D8FBE6;font-weight:700;letter-spacing:.04em;">
+                                💰 CAPITAL INICIAL PARA INVERTIR
+                            </div>
+                            <div class="proyeccion-control-disponible">
+                                Máximo disponible · <b>{maximo_inversion_texto}</b>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    if maximo_inversion_disponible > 0:
+                        paso_inversion = max(1, int(maximo_inversion_disponible / 100))
+                        capital_inicial_proyeccion = st.slider(
+                            "Monto que se va a invertir",
+                            min_value=0,
+                            max_value=maximo_inversion_disponible,
+                            step=paso_inversion,
+                            key=clave_inversion_inicial,
+                            help=(
+                                "Reduce la barra si deseas proyectar solamente una parte del capital "
+                                "disponible. Las gráficas y las tarjetas se recalculan automáticamente."
+                            ),
+                        )
+                    else:
+                        capital_inicial_proyeccion = 0
+                        st.progress(0, text="No hay capital positivo disponible para invertir")
+                    porcentaje_invertido = (
+                        capital_inicial_proyeccion / maximo_inversion_disponible * 100
+                        if maximo_inversion_disponible else 0.0
+                    )
+                    proporcion_capital_elegida = (
+                        capital_inicial_proyeccion / maximo_inversion_disponible
+                        if maximo_inversion_disponible else 0.0
+                    )
+                    aporte_mensual_proyectado = (
+                        saldo_mensual_tendencia * proporcion_capital_elegida
+                    )
+                    capital_inicial_texto = f"${capital_inicial_proyeccion:,.0f}".replace(",", ".")
+                    aporte_mensual_texto = f"${aporte_mensual_proyectado:,.0f}".replace(",", ".")
+                    st.markdown(
+                        f"""
+                        <div class="proyeccion-control-numero">
+                            {capital_inicial_texto}
+                        </div>
+                        <div class="proyeccion-control-detalle">
+                            {porcentaje_invertido:.0f}% del capital disponible · aporte mensual proyectado:
+                            <b>{aporte_mensual_texto}</b>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+            with controles_proyeccion[1]:
+                with st.container(border=True, key="tendencias_control_tasa"):
+                    st.markdown(
+                        """
+                        <div style="min-height:58px;">
+                            <div style="font-size:13px;color:#D8FBE6;font-weight:700;letter-spacing:.04em;">
+                                📈 RENDIMIENTO EFECTIVO ANUAL
+                            </div>
+                            <div style="font-size:12px;color:#B9DCC6;margin-top:7px;">
+                                Compara el escenario base con el crecimiento de la inversión.
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    tasa_interes_ea_pct = st.slider(
+                        "Tasa de interés efectiva anual (EA)",
+                        min_value=2,
+                        max_value=25,
+                        value=10,
+                        step=1,
+                        format="%d%%",
+                        help=(
+                            "Selecciona el rendimiento anual estimado para la proyección "
+                            "de 10, 20 y 30 años."
+                        ),
+                        key="tendencias_tasa_interes_ea_v13",
+                    )
+                    st.markdown(
+                        f"""
+                        <div class="proyeccion-control-numero">
+                            {tasa_interes_ea_pct}% EA
+                        </div>
+                        <div class="proyeccion-control-detalle">
+                            Tasa elegida para el escenario con rendimiento compuesto
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+            st.markdown("## Proyección de ahorro a 10, 20 y 30 años")
+            st.caption(
+                "El monto elegido funciona como capital inicial y también define qué proporción del saldo "
+                "mensual observado se seguirá invirtiendo. El escenario con rendimiento añade la tasa EA seleccionada."
+            )
+
             meses_proyectados = 30 * 12
             periodos_futuros = pd.period_range(
                 start=periodos_observados_proyeccion[-1] + 1,
@@ -2503,19 +3073,20 @@ if archivo:
             gastos_futuros = []
             saldos_mensuales_futuros = []
             ahorro_acumulado_futuro = []
-            acumulado = 0.0
+            acumulado = float(capital_inicial_proyeccion)
             for _ in range(meses_proyectados):
-                acumulado += saldo_mensual_tendencia
+                acumulado += aporte_mensual_proyectado
                 salarios_futuros.append(salario_mensual_tendencia)
                 gastos_futuros.append(gasto_mensual_tendencia)
-                saldos_mensuales_futuros.append(saldo_mensual_tendencia)
+                saldos_mensuales_futuros.append(aporte_mensual_proyectado)
                 ahorro_acumulado_futuro.append(acumulado)
 
             valores_horizonte = {
-                10: saldo_mensual_tendencia * 10 * 12,
-                20: saldo_mensual_tendencia * 20 * 12,
-                30: saldo_mensual_tendencia * 30 * 12,
+                10: capital_inicial_proyeccion + aporte_mensual_proyectado * 10 * 12,
+                20: capital_inicial_proyeccion + aporte_mensual_proyectado * 20 * 12,
+                30: capital_inicial_proyeccion + aporte_mensual_proyectado * 30 * 12,
             }
+            st.markdown("### Escenario base · sin rendimiento")
             tarjetas_proyeccion = st.columns(3)
             for tarjeta, anios_horizonte in zip(tarjetas_proyeccion, [10, 20, 30]):
                 valor_horizonte = float(valores_horizonte[anios_horizonte])
@@ -2555,7 +3126,8 @@ if archivo:
             datos_proyeccion_hover = pd.DataFrame({
                 "Salario proyectado": salarios_futuros,
                 "Gasto proyectado": gastos_futuros,
-                "Saldo mensual": saldos_mensuales_futuros,
+                "Aporte mensual elegido": saldos_mensuales_futuros,
+                "Capital inicial": [capital_inicial_proyeccion] * meses_proyectados,
             })
             fig_proyeccion_largo_plazo = go.Figure()
             fig_proyeccion_largo_plazo.add_trace(go.Scatter(
@@ -2589,15 +3161,27 @@ if archivo:
                     "Saldo acumulado: <b>$%{y:,.0f}</b><br>"
                     "Salario mensual proyectado: $%{customdata[0]:,.0f}<br>"
                     "Gasto mensual proyectado: $%{customdata[1]:,.0f}<br>"
-                    "Saldo mensual: $%{customdata[2]:,.0f}<extra></extra>"
+                    "Aporte mensual elegido: $%{customdata[2]:,.0f}<br>"
+                    "Capital inicial elegido: $%{customdata[3]:,.0f}<extra></extra>"
                 ),
                 showlegend=False,
             ))
             fig_proyeccion_largo_plazo.add_hline(
                 y=0, line_color="#94A3B8", line_width=1.2, line_dash="dot"
             )
+
+            def formato_horizonte_compacto(valor):
+                valor = float(valor)
+                signo = "-" if valor < 0 else ""
+                valor_abs = abs(valor)
+                for divisor, sufijo in [(1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")]:
+                    if valor_abs >= divisor:
+                        return f"{signo}${valor_abs / divisor:.1f}{sufijo}"
+                return f"{signo}${valor_abs:,.0f}"
+
             for anios_horizonte in [10, 20, 30]:
                 fecha_horizonte = fechas_futuras[anios_horizonte * 12 - 1]
+                valor_horizonte_grafica = float(valores_horizonte[anios_horizonte])
                 fig_proyeccion_largo_plazo.add_shape(
                     type="line",
                     xref="x",
@@ -2610,12 +3194,20 @@ if archivo:
                 )
                 fig_proyeccion_largo_plazo.add_annotation(
                     x=fecha_horizonte,
-                    y=1.03,
-                    xref="x",
-                    yref="paper",
-                    text=f"{anios_horizonte} años",
-                    showarrow=False,
-                    font=dict(color="#FFEE00", size=10),
+                    y=valor_horizonte_grafica,
+                    text=(
+                        f"<b>{anios_horizonte} años</b><br>"
+                        f"{formato_horizonte_compacto(valor_horizonte_grafica)}"
+                    ),
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowcolor="#00FF88" if valor_horizonte_grafica >= 0 else "#FF1744",
+                    ax=0,
+                    ay=-48 if valor_horizonte_grafica >= 0 else 48,
+                    bgcolor="rgba(0,20,12,.92)",
+                    bordercolor="#00FF88" if valor_horizonte_grafica >= 0 else "#FF1744",
+                    borderpad=5,
+                    font=dict(color="#F8FAFC", size=10),
                 )
             fig_proyeccion_largo_plazo.update_layout(
                 height=520,
@@ -2625,49 +3217,19 @@ if archivo:
                 legend=dict(orientation="h", y=1.08, x=0),
             )
             fig_proyeccion_largo_plazo.update_yaxes(tickprefix="$", tickformat="~s")
-            st.plotly_chart(
-                estilo_grafico(
-                    fig_proyeccion_largo_plazo,
-                    "Si continúa el ritmo promedio de salarios menos gastos",
-                ),
-                use_container_width=True,
-                key="tendencias_proyeccion_ahorro_30_anios_v12",
-            )
-
-            if len(periodos_observados_proyeccion) < 6:
-                st.warning(
-                    "La proyección se construye con menos de seis meses observados; úsala con especial cautela."
-                )
-            st.caption(
-                "La línea acumula cada mes el saldo promedio observado entre salarios y gastos. "
-                "No es una garantía y no contempla cambios futuros en ingresos, gastos o poder adquisitivo."
-            )
-
-            st.divider()
-            st.markdown("### Proyección con rendimiento efectivo anual")
-            tasa_interes_ea_pct = st.slider(
-                "Tasa de interés efectiva anual (EA)",
-                min_value=2,
-                max_value=25,
-                value=10,
-                step=1,
-                format="%d%%",
-                help=(
-                    "Selecciona el rendimiento anual estimado que se aplicará a la proyección "
-                    "de 10, 20 y 30 años."
-                ),
-                key="tendencias_tasa_interes_ea_v12",
-            )
+            st.markdown(f"### Escenario base · con rendimiento del {tasa_interes_ea_pct}% EA")
             tasa_efectiva_anual = tasa_interes_ea_pct / 100
             tasa_efectiva_mensual = (1 + tasa_efectiva_anual) ** (1 / 12) - 1
             capital_con_interes = []
             interes_generado_mensual = []
             rendimiento_acumulado = []
-            capital_actual = 0.0
+            capital_actual = float(capital_inicial_proyeccion)
             for numero_mes in range(1, meses_proyectados + 1):
                 interes_del_mes = capital_actual * tasa_efectiva_mensual
-                capital_actual += interes_del_mes + saldo_mensual_tendencia
-                aporte_neto_acumulado = saldo_mensual_tendencia * numero_mes
+                capital_actual += interes_del_mes + aporte_mensual_proyectado
+                aporte_neto_acumulado = (
+                    capital_inicial_proyeccion + aporte_mensual_proyectado * numero_mes
+                )
                 capital_con_interes.append(capital_actual)
                 interes_generado_mensual.append(interes_del_mes)
                 rendimiento_acumulado.append(capital_actual - aporte_neto_acumulado)
@@ -2725,9 +3287,10 @@ if archivo:
                 valor if valor < 0 else None for valor in capital_con_interes
             ]
             datos_interes_hover = pd.DataFrame({
-                "Aporte neto mensual": [saldo_mensual_tendencia] * meses_proyectados,
+                "Aporte neto mensual": [aporte_mensual_proyectado] * meses_proyectados,
                 "Interés del mes": interes_generado_mensual,
                 "Rendimiento acumulado": rendimiento_acumulado,
+                "Capital inicial": [capital_inicial_proyeccion] * meses_proyectados,
             })
             fig_proyeccion_interes = go.Figure()
             fig_proyeccion_interes.add_trace(go.Scatter(
@@ -2761,7 +3324,8 @@ if archivo:
                     "Capital acumulado: <b>$%{y:,.0f}</b><br>"
                     "Aporte neto mensual: $%{customdata[0]:,.0f}<br>"
                     "Interés del mes: $%{customdata[1]:,.0f}<br>"
-                    "Rendimiento acumulado: $%{customdata[2]:,.0f}"
+                    "Rendimiento acumulado: $%{customdata[2]:,.0f}<br>"
+                    "Capital inicial elegido: $%{customdata[3]:,.0f}"
                     "<extra></extra>"
                 ),
                 showlegend=False,
@@ -2771,6 +3335,7 @@ if archivo:
             )
             for anios_horizonte in [10, 20, 30]:
                 fecha_horizonte = fechas_futuras[anios_horizonte * 12 - 1]
+                valor_horizonte_grafica = float(valores_horizonte_interes[anios_horizonte])
                 fig_proyeccion_interes.add_shape(
                     type="line",
                     xref="x",
@@ -2783,12 +3348,20 @@ if archivo:
                 )
                 fig_proyeccion_interes.add_annotation(
                     x=fecha_horizonte,
-                    y=1.03,
-                    xref="x",
-                    yref="paper",
-                    text=f"{anios_horizonte} años",
-                    showarrow=False,
-                    font=dict(color="#FFEE00", size=10),
+                    y=valor_horizonte_grafica,
+                    text=(
+                        f"<b>{anios_horizonte} años</b><br>"
+                        f"{formato_horizonte_compacto(valor_horizonte_grafica)}"
+                    ),
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowcolor="#00FF88" if valor_horizonte_grafica >= 0 else "#FF1744",
+                    ax=0,
+                    ay=-48 if valor_horizonte_grafica >= 0 else 48,
+                    bgcolor="rgba(0,20,12,.92)",
+                    bordercolor="#00FF88" if valor_horizonte_grafica >= 0 else "#FF1744",
+                    borderpad=5,
+                    font=dict(color="#F8FAFC", size=10),
                 )
             fig_proyeccion_interes.update_layout(
                 height=520,
@@ -2798,18 +3371,43 @@ if archivo:
                 legend=dict(orientation="h", y=1.08, x=0),
             )
             fig_proyeccion_interes.update_yaxes(tickprefix="$", tickformat="~s")
-            st.plotly_chart(
-                estilo_grafico(
-                    fig_proyeccion_interes,
-                    f"Saldo mensual invertido al {tasa_interes_ea_pct}% efectivo anual",
-                ),
-                use_container_width=True,
-                key="tendencias_proyeccion_interes_ea_v12",
-            )
+
+            st.markdown("### Comparación visual de los dos escenarios")
+            columnas_graficas_proyeccion = st.columns(2)
+            with columnas_graficas_proyeccion[0]:
+                st.plotly_chart(
+                    estilo_grafico(
+                        fig_proyeccion_largo_plazo,
+                        "Sin rendimiento · tendencia de salarios menos gastos",
+                    ),
+                    use_container_width=True,
+                    key="tendencias_proyeccion_ahorro_30_anios_v13",
+                )
+                st.caption(
+                    f"Capital inicial de ${capital_inicial_proyeccion:,.0f} más un aporte mensual ajustado "
+                    f"de ${aporte_mensual_proyectado:,.0f}, sin aplicar intereses."
+                )
+            with columnas_graficas_proyeccion[1]:
+                st.plotly_chart(
+                    estilo_grafico(
+                        fig_proyeccion_interes,
+                        f"Con rendimiento compuesto · {tasa_interes_ea_pct}% EA",
+                    ),
+                    use_container_width=True,
+                    key="tendencias_proyeccion_interes_ea_v13",
+                )
+                st.caption(
+                    f"Aplica {tasa_interes_ea_pct}% EA sobre ${capital_inicial_proyeccion:,.0f}; "
+                    f"se aportan ${aporte_mensual_proyectado:,.0f} al mes y los rendimientos se reinvierten."
+                )
+
+            if len(periodos_observados_proyeccion) < 6:
+                st.warning(
+                    "La proyección se construye con menos de seis meses observados; úsala con especial cautela."
+                )
             st.caption(
-                f"Se aplica una tasa efectiva mensual de {tasa_efectiva_mensual * 100:.3f}% "
-                f"equivalente al {tasa_interes_ea_pct}% EA. El saldo neto se aporta al final de "
-                "cada mes y los rendimientos se reinvierten."
+                "Los valores señalados en 10, 20 y 30 años facilitan la comparación. "
+                "Son escenarios orientativos y no garantizan resultados futuros."
             )
         else:
             st.info(
@@ -4360,14 +4958,14 @@ if archivo:
                 "Nivel de análisis",
                 ["Categorías", "Subcategorías"],
                 horizontal=True,
-                key="presupuesto_resultado_final_nivel_v12",
+                key="presupuesto_resultado_final_nivel_v13",
             )
         with selector_vista:
             vista_cumplimiento = st.radio(
                 "Forma de visualizar",
                 ["Porcentaje", "Valor en efectivo"],
                 horizontal=True,
-                key="presupuesto_resultado_final_vista_v12",
+                key="presupuesto_resultado_final_vista_v13",
             )
 
         if nivel_cumplimiento == "Categorías":
@@ -4813,7 +5411,7 @@ if archivo:
                         fig_saldo_efectivo,
                         use_container_width=True,
                         key=(
-                            f"presupuesto_saldo_efectivo_{nivel_cumplimiento.lower()}_v12"
+                            f"presupuesto_saldo_efectivo_{nivel_cumplimiento.lower()}_v13"
                         ),
                     )
                 else:
@@ -4822,7 +5420,7 @@ if archivo:
                         use_container_width=True,
                         key=(
                             f"presupuesto_resultado_final_{nivel_cumplimiento.lower()}_"
-                            f"{vista_cumplimiento.lower()}_v12"
+                            f"{vista_cumplimiento.lower()}_v13"
                         ),
                     )
 
@@ -4988,7 +5586,7 @@ if archivo:
                 st.plotly_chart(
                     fig_distribucion_final,
                     use_container_width=True,
-                    key=f"presupuesto_distribucion_final_{nivel_cumplimiento.lower()}_v12",
+                    key=f"presupuesto_distribucion_final_{nivel_cumplimiento.lower()}_v13",
                 )
 
     if pestana_activa == etiquetas_pestanas[4]:

@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: altium-financiero:v12
-    container_name: altium-financiero-v12
+    image: altium-financiero:v13
+    container_name: altium-financiero-v13
     ports:
       - "8501:8501"
     restart: unless-stopped

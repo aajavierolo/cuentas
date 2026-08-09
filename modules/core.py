@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import unicodedata
 
-st.set_page_config(page_title="Altium Financiero V12", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Altium Financiero V13", layout="wide", page_icon="📊")
 
 PALETA_CATEGORIAS = [
     "#4F46E5", "#0EA5E9", "#14B8A6", "#22C55E", "#F59E0B",
@@ -2739,7 +2739,7 @@ def cargar_excel(file):
 
 
 # ============================================================
-# FELICIDAD V12 · TRABAJO, TIEMPO Y BIENESTAR FINANCIERO
+# FELICIDAD V13 · TRABAJO, TIEMPO Y BIENESTAR FINANCIERO
 # ============================================================
 def resumen_felicidad_por_empresa(trabajos):
     """Consolida ingresos, horas, valor/hora y eficiencia relativa por empresa."""

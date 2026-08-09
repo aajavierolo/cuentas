@@ -1,11 +1,11 @@
-# Altium Financiero V12
+# Altium Financiero V13
 
 Dashboard financiero en Streamlit con la pestaña Felicidad reorganizada y la Brújula Altium.
 
 ## Estructura
 
 ```text
-Altium_Financiero_V12/
+Altium_Financiero_V13/
 ├── app.py
 ├── modules/
 │   ├── __init__.py
@@ -71,8 +71,8 @@ docker compose down
 ## Construcción sin Docker Compose
 
 ```bash
-docker build -t altium-financiero:v12 .
-docker run -d --name altium-financiero-v12 -p 8501:8501 altium-financiero:v12
+docker build -t altium-financiero:v13 .
+docker run -d --name altium-financiero-v13 -p 8501:8501 altium-financiero:v13
 ```
 
 ## Publicar en Docker Hub
@@ -81,14 +81,14 @@ Reemplace `USUARIO_DOCKERHUB` por su usuario:
 
 ```bash
 docker login
-docker tag altium-financiero:v12 USUARIO_DOCKERHUB/altium-financiero:v12
-docker push USUARIO_DOCKERHUB/altium-financiero:v12
+docker tag altium-financiero:v13 USUARIO_DOCKERHUB/altium-financiero:v13
+docker push USUARIO_DOCKERHUB/altium-financiero:v13
 ```
 
 Opcionalmente publique también `latest`:
 
 ```bash
-docker tag altium-financiero:v12 USUARIO_DOCKERHUB/altium-financiero:latest
+docker tag altium-financiero:v13 USUARIO_DOCKERHUB/altium-financiero:latest
 docker push USUARIO_DOCKERHUB/altium-financiero:latest
 ```
 
