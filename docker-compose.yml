@@ -1,0 +1,28 @@
+services:
+  altium-financiero:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: altium-financiero:v12
+    container_name: altium-financiero-v12
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    volumes:
+      - altium_data:/app/data
+    environment:
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_SERVER_ADDRESS: "0.0.0.0"
+      STREAMLIT_SERVER_PORT: "8501"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+      MPLBACKEND: "Agg"
+      MPLCONFIGDIR: "/tmp/matplotlib"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  altium_data:
