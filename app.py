@@ -3,13 +3,16 @@
 
 from modules.core import *
 from modules.report_pdf import generar_informe_financiero_pdf
+import hashlib
+import html
+import numpy as np
 
 st.markdown(THEME_CSS, unsafe_allow_html=True)
 encabezado_principal = st.empty()
 with encabezado_principal.container():
     titulo_col, boton_col = st.columns([5.2, 1.8])
     with titulo_col:
-        st.markdown('<p class="hero-title">Altium Financiero V13</p>', unsafe_allow_html=True)
+        st.markdown('<p class="hero-title">Altium Financiero V14</p>', unsafe_allow_html=True)
     with boton_col:
         st.button(
             "📄 Descargar informe PDF",
@@ -29,9 +32,13 @@ archivo = st.file_uploader("Sube altium.xlsx", type=["xlsx"])
 
 @st.cache_data(show_spinner=False, max_entries=3)
 def cargar_hoja_deudas(file):
-    """Lee la hoja Deudas una sola vez por archivo cargado."""
+    """Lee Pasivos o Deudas una sola vez por archivo cargado."""
     file.seek(0)
-    return pd.read_excel(file, sheet_name="Deudas", usecols="A:F")
+    deudas_excel = leer_deudas_excel(file)
+    return deudas_excel[[
+        "Nombre", "Deuda inicial", "Interés", "Saldo",
+        "Avance Excel", "Inicio del crédito",
+    ]]
 
 if archivo:
 
@@ -85,7 +92,7 @@ if archivo:
         )
 
     # ============================================================
-    # HOJA DEUDAS
+    # HOJA PASIVOS / DEUDAS
     # Columnas esperadas:
     # A = nombre, B = deuda inicial, C = interés mensual,
     # D = saldo, E = avance, F = inicio del crédito
@@ -249,6 +256,10 @@ if archivo:
 
         fecha_desde_ts = pd.Timestamp(fecha_desde)
         fecha_hasta_ts = pd.Timestamp(fecha_hasta) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        periodos_sel = [
+            (int(periodo.year), MESES_ORDEN[int(periodo.month) - 1])
+            for periodo in pd.period_range(fecha_desde_ts, fecha_hasta_ts, freq="M")
+        ]
 
         gastos_por_fecha = gastos[
             gastos["GASTOS_FECHA"].between(fecha_desde_ts, fecha_hasta_ts, inclusive="both")
@@ -309,13 +320,23 @@ if archivo:
     # Presupuesto aplicable al periodo filtrado. Cada mes toma su valor específico
     # de Historico_presupuesto; una celda vacía ya fue reemplazada por propuesto.
     presupuesto_cat, presupuesto_sub, presupuesto_mensual_general, presupuesto_mensual_por_periodo = (
-        presupuestos_para_dataframe(historico_presupuesto, df)
+        presupuestos_para_dataframe(
+            historico_presupuesto,
+            df=df,
+            periodos=periodos_sel,
+            categorias=categorias_sel if categorias_elegidas else None,
+            subcategorias=subcategorias_sel if subcategorias_elegidas else None,
+        )
     )
-    if not presupuesto_cat and presupuesto_cat_base:
+    if (historico_presupuesto is None or historico_presupuesto.empty) and presupuesto_cat_base:
         presupuesto_cat = presupuesto_cat_base
         presupuesto_sub = presupuesto_sub_base
-        presupuesto_mensual_general = presupuesto_mensual_base
-        presupuesto_mensual_por_periodo = {}
+        cantidad_periodos = max(len(periodos_sel), 1)
+        presupuesto_mensual_general = float(presupuesto_mensual_base or 0.0) * cantidad_periodos
+        presupuesto_mensual_por_periodo = {
+            (anio, mes): float(presupuesto_mensual_base or 0.0)
+            for anio, mes in periodos_sel
+        }
 
 
     if not ingresos.empty:
@@ -352,7 +373,32 @@ if archivo:
         ingresos_df=ingresos_filtrados,
         meses_sel=meses_sel,
         presupuesto_mensual=presupuesto_mensual_por_periodo or presupuesto_mensual_general,
+        periodos_sel=periodos_sel,
     )
+
+    score_actual = calcular_score_financiero(
+        gastos_valor=float(total_gastos),
+        ingresos_valor=float(total_ingresos),
+        presupuesto_valor=float(presupuesto_mensual_general or 0.0),
+        patrimonio=patrimonio,
+        metas_df=metas,
+        gastos_df=df,
+        cantidad_periodos=len(periodos_sel),
+    )
+
+    contexto_pdf = hashlib.sha256(
+        archivo.getvalue()
+        + repr((
+            fecha_desde.isoformat(), fecha_hasta.isoformat(),
+            tuple(sorted(map(str, categorias_sel))),
+            tuple(sorted(map(str, subcategorias_sel))),
+        )).encode("utf-8")
+    ).hexdigest()
+    if st.session_state.get("informe_pdf_v9_contexto") != contexto_pdf:
+        st.session_state.pop("informe_pdf_v9", None)
+        st.session_state.pop("informe_pdf_v9_nombre", None)
+        st.session_state.pop("informe_pdf_v9_error", None)
+        st.session_state["informe_pdf_v9_contexto"] = contexto_pdf
 
     # El PDF se construye únicamente cuando el usuario lo solicita.
     # Los bytes quedan en session_state para que el botón de descarga no
@@ -361,7 +407,7 @@ if archivo:
     with encabezado_principal.container():
         titulo_col, boton_col = st.columns([5.2, 1.8])
         with titulo_col:
-            st.markdown('<p class="hero-title">Altium Financiero V13</p>', unsafe_allow_html=True)
+            st.markdown('<p class="hero-title">Altium Financiero V14</p>', unsafe_allow_html=True)
         with boton_col:
             generar_pdf_click = st.button(
                 "📄 Preparar informe PDF",
@@ -388,7 +434,9 @@ if archivo:
                     patrimonio=patrimonio,
                     metas=metas,
                     felicidad=felicidad_trabajos_filtrados,
-                    presupuesto_mensual=float(presupuesto_mensual_general or 0),
+                    presupuesto_periodo=float(presupuesto_mensual_general or 0),
+                    score_financiero=score_actual["score"],
+                    componentes_score=score_actual["componentes"],
                 )
                 nombre_pdf_seguro = normalizar(nombre_persona).title().replace(" ", "_")
                 nombre_pdf_seguro = "".join(
@@ -1122,6 +1170,9 @@ if archivo:
         fig_prom.update_traces(
             texttemplate="$%{text:,.0f}",
             textposition="outside",
+            cliponaxis=False,
+            width=0.58,
+            textfont=dict(size=16, color="#F8FAFC"),
             hovertemplate=(
                 "<b>⏱️ Promedio %{x}</b><br><br>"
                 "💰 Gasto promedio: <b>$%{y:,.0f}</b><br>"
@@ -1129,42 +1180,106 @@ if archivo:
                 "<extra></extra>"
             ),
         )
-        fig_prom.update_layout(height=360, showlegend=False, margin=dict(t=40,b=30,l=30,r=30))
+        max_promedio_gasto = max(float(promedios_df["Valor"].max()), 1.0)
+        fig_prom.update_layout(
+            height=440,
+            showlegend=False,
+            margin=dict(t=95, b=45, l=55, r=35),
+            uniformtext_minsize=14,
+            uniformtext_mode="show",
+        )
+        fig_prom.update_yaxes(
+            range=[0, max_promedio_gasto * 1.30],
+            tickprefix="$",
+            tickformat=",.0f",
+            separatethousands=True,
+        )
+        fig_prom = preparar_grafico_resumen(
+            fig_prom,
+            titulo="Gasto promedio diario, semanal y mensual",
+            x="Periodo",
+            y="Valor promedio",
+            mostrar_leyenda=False,
+        )
+        # El estilo general aplica márgenes compactos; aquí se restablece un
+        # margen superior amplio para que las cifras externas nunca se corten.
+        fig_prom.update_layout(height=440, margin=dict(t=95, b=45, l=55, r=35))
         st.plotly_chart(
-            preparar_grafico_resumen(
-                fig_prom,
-                titulo="Gasto promedio diario, semanal y mensual",
-                x="Periodo",
-                y="Valor promedio",
-                mostrar_leyenda=False,
-            ),
+            fig_prom,
             use_container_width=True,
+            key="resumen_promedios_gasto_valores_visibles",
         )
 
-        # Se conserva el histograma original de distribución de montos de gasto.
+        # Histograma construido por intervalos para incluir el detalle de cada
+        # transacción dentro del tooltip de su barra.
         st.markdown("#### Distribución de montos de gasto")
-        fig_hist = px.histogram(
-            df,
-            x="GASTOS_CANTIDAD",
-            nbins=30,
+        gastos_hist = df[["GASTOS_CANTIDAD", "GASTOS_DESCRIPCION"]].copy()
+        gastos_hist["GASTOS_CANTIDAD"] = pd.to_numeric(
+            gastos_hist["GASTOS_CANTIDAD"], errors="coerce"
         )
-        fig_hist.update_traces(
-            marker=dict(
-                color="#38BDF8",
-                line=dict(color="#A78BFA", width=1.3),
-            ),
-            hovertemplate=(
-                "<b>📦 Rango de gasto: $%{x:,.0f}</b><br><br>"
-                "🔢 Transacciones en este rango: <b>%{y}</b><br>"
-                "📊 Una barra más alta indica mayor frecuencia de movimientos"
-                "<extra></extra>"
-            ),
-        )
+        gastos_hist = gastos_hist[gastos_hist["GASTOS_CANTIDAD"].notna()].copy()
+
+        fig_hist = go.Figure()
+        if not gastos_hist.empty:
+            cantidades_hist = gastos_hist["GASTOS_CANTIDAD"].astype(float).to_numpy()
+            conteos_hist, bordes_hist = np.histogram(cantidades_hist, bins=30)
+            gastos_hist["Intervalo"] = np.digitize(
+                cantidades_hist, bordes_hist[1:-1], right=False
+            )
+
+            centros_hist = []
+            frecuencias_hist = []
+            anchos_hist = []
+            datos_hist = []
+            for indice_hist, frecuencia_hist in enumerate(conteos_hist):
+                if frecuencia_hist <= 0:
+                    continue
+                desde_hist = float(bordes_hist[indice_hist])
+                hasta_hist = float(bordes_hist[indice_hist + 1])
+                movimientos_hist = gastos_hist[
+                    gastos_hist["Intervalo"].eq(indice_hist)
+                ].sort_values("GASTOS_CANTIDAD", ascending=False)
+                movimientos_tooltip_hist = movimientos_hist.head(10)
+
+                detalle_hist = "<br>".join(
+                    f"• {html.escape(str(descripcion).strip() if pd.notna(descripcion) and str(descripcion).strip() else 'Sin descripción')}: "
+                    f"<b>${float(valor):,.0f}</b>"
+                    for descripcion, valor in movimientos_tooltip_hist[
+                        ["GASTOS_DESCRIPCION", "GASTOS_CANTIDAD"]
+                    ].itertuples(index=False, name=None)
+                )
+                centros_hist.append((desde_hist + hasta_hist) / 2)
+                frecuencias_hist.append(int(frecuencia_hist))
+                anchos_hist.append((hasta_hist - desde_hist) * 0.94)
+                datos_hist.append([
+                    f"${desde_hist:,.0f} – ${hasta_hist:,.0f}",
+                    detalle_hist,
+                    float(movimientos_hist["GASTOS_CANTIDAD"].sum()),
+                ])
+
+            fig_hist.add_trace(go.Bar(
+                x=centros_hist,
+                y=frecuencias_hist,
+                width=anchos_hist,
+                customdata=datos_hist,
+                marker=dict(
+                    color="#38BDF8",
+                    line=dict(color="#A78BFA", width=1.3),
+                ),
+                hovertemplate=(
+                    "<b>📦 Rango de gasto: %{customdata[0]}</b><br>"
+                    "🔢 Transacciones: <b>%{y}</b><br>"
+                    "💰 Total del rango: <b>$%{customdata[2]:,.0f}</b><br><br>"
+                    "<b>10 gastos más altos del rango:</b><br>%{customdata[1]}"
+                    "<extra></extra>"
+                ),
+            ))
         fig_hist.update_layout(
             hoverlabel=dict(
                 bgcolor="#0a0a0a",
                 bordercolor="#38BDF8",
                 font=dict(size=13, color="#f8fafc"),
+                align="left",
             )
         )
         fig_hist.update_xaxes(title_text="Monto del gasto")
@@ -1192,6 +1307,7 @@ if archivo:
             ingresos_df=ingresos_filtrados,
             meses_sel=meses_sel,
             presupuesto_mensual=presupuesto_mensual_por_periodo or presupuesto_mensual_general,
+            periodos_sel=periodos_sel,
         )
 
         c5, c6, c7 = st.columns(3)
@@ -1803,6 +1919,7 @@ if archivo:
             ingresos_df=ingresos_filtrados,
             meses_sel=meses_sel,
             presupuesto_mensual=presupuesto_mensual_por_periodo or presupuesto_mensual_general,
+            periodos_sel=periodos_sel,
         )
 
         # ======================================================
@@ -3915,9 +4032,15 @@ if archivo:
                 if isinstance(presupuesto_mensual_por_periodo, dict) else 0.0
             )
             if presupuesto_mes_actual <= 0 and not presupuesto_mensual_df.empty:
-                fila_mes_actual = presupuesto_mensual_df[
-                    presupuesto_mensual_df["MES"].astype(str).str.upper().eq(mes_actual_nombre)
-                ]
+                if {"ANIO", "MES_NOMBRE"}.issubset(presupuesto_mensual_df.columns):
+                    fila_mes_actual = presupuesto_mensual_df[
+                        pd.to_numeric(presupuesto_mensual_df["ANIO"], errors="coerce").eq(int(fecha_actual.year))
+                        & presupuesto_mensual_df["MES_NOMBRE"].map(normalizar_mes).eq(normalizar_mes(mes_actual_nombre))
+                    ]
+                else:
+                    fila_mes_actual = presupuesto_mensual_df[
+                        presupuesto_mensual_df["MES"].astype(str).str.upper().eq(mes_actual_nombre)
+                    ]
                 if not fila_mes_actual.empty:
                     presupuesto_mes_actual = float(fila_mes_actual.iloc[-1]["Presupuesto mensual"])
 
@@ -6842,13 +6965,13 @@ if archivo:
         st.subheader("🏠 Patrimonio Neto")
         st.caption(
             "Lee automáticamente una hoja llamada Patrimonio. Cada fila puede ser un activo o un pasivo. "
-            "El valor neto se calcula si la columna viene vacía."
+            "El valor neto se calcula automáticamente con el valor actual, el porcentaje de propiedad y la clasificación."
         )
 
         plantilla_patrimonio = pd.DataFrame(columns=[
-            "Fecha", "Tipo", "Categoría", "Subcategoría", "Descripción", "Entidad",
-            "Valor actual", "Saldo pendiente", "Valor neto", "Fecha compra",
-            "Fecha valoración", "Estado", "Observaciones", "Liquidez",
+            "Fecha", "Clasificación", "Tipo de producto", "Disponibilidad de efectivo",
+            "Liquidez", "Categoría", "Subcategoría", "Descripción", "Entidad",
+            "Porcentaje", "Valor actual", "Observaciones",
         ])
 
         if patrimonio.empty:
@@ -6857,39 +6980,40 @@ if archivo:
             st.markdown("#### Ejemplo de cómo llenar la hoja")
             ejemplo_patrimonio = pd.DataFrame([
                 {
-                    "Fecha": "06/07/2026", "Tipo": "Activo", "Categoría": "Vivienda",
-                    "Subcategoría": "Casa", "Descripción": "Casa principal", "Entidad": "Propia / Banco",
-                    "Valor actual": 420000000, "Saldo pendiente": 165000000, "Valor neto": 255000000,
-                    "Fecha compra": "18/09/2020", "Fecha valoración": "06/07/2026",
-                    "Estado": "Activo", "Observaciones": "Avalúo comercial 2026", "Liquidez": "Baja",
+                    "Fecha": "06/07/2026", "Clasificación": "Activo", "Tipo de producto": "Sin renta",
+                    "Disponibilidad de efectivo": "No corriente", "Liquidez": "Baja", "Categoría": "Vivienda",
+                    "Subcategoría": "Casa", "Descripción": "Casa principal", "Entidad": "Propia",
+                    "Porcentaje": 0.60, "Valor actual": 420000000, "Observaciones": "Avalúo comercial 2026",
                 },
                 {
-                    "Fecha": "06/07/2026", "Tipo": "Activo", "Categoría": "Bancos",
+                    "Fecha": "06/07/2026", "Clasificación": "Activo", "Tipo de producto": "Renta fija",
+                    "Disponibilidad de efectivo": "Corriente", "Liquidez": "Alta", "Categoría": "Bancos",
                     "Subcategoría": "Cuenta de ahorros", "Descripción": "Cuenta principal", "Entidad": "Bancolombia",
-                    "Valor actual": 8500000, "Saldo pendiente": 0, "Valor neto": 8500000,
-                    "Fecha compra": "10/01/2018", "Fecha valoración": "06/07/2026",
-                    "Estado": "Activo", "Observaciones": "Saldo actualizado", "Liquidez": "Alta",
+                    "Porcentaje": 1.00, "Valor actual": 8500000, "Observaciones": "Saldo actualizado",
                 },
                 {
-                    "Fecha": "06/07/2026", "Tipo": "Pasivo", "Categoría": "Tarjeta de crédito",
-                    "Subcategoría": "Visa", "Descripción": "Tarjeta principal", "Entidad": "BBVA",
-                    "Valor actual": 0, "Saldo pendiente": 3250000, "Valor neto": -3250000,
-                    "Fecha compra": "12/02/2020", "Fecha valoración": "06/07/2026",
-                    "Estado": "Activa", "Observaciones": "Corte mensual", "Liquidez": "No aplica",
+                    "Fecha": "06/07/2026", "Clasificación": "Pasivo", "Tipo de producto": "Préstamo",
+                    "Disponibilidad de efectivo": "Corriente", "Liquidez": "No aplica", "Categoría": "Crédito",
+                    "Subcategoría": "Tarjeta", "Descripción": "Tarjeta principal", "Entidad": "BBVA",
+                    "Porcentaje": 1.00, "Valor actual": 3250000, "Observaciones": "Corte mensual",
                 },
             ])
             st.dataframe(ejemplo_patrimonio, use_container_width=True, hide_index=True)
         else:
-            total_activos = float(patrimonio.loc[patrimonio["Tipo"].map(normalizar).eq("ACTIVO"), "Valor neto"].sum())
-            total_pasivos = abs(float(patrimonio.loc[~patrimonio["Tipo"].map(normalizar).eq("ACTIVO"), "Valor neto"].sum()))
+            activos_mask = patrimonio["Tipo"].map(normalizar).eq("ACTIVO")
+            total_activos = float(patrimonio.loc[activos_mask, "Valor neto"].sum())
+            inmuebles_mask = patrimonio["Categoría"].fillna("").map(normalizar).str.contains("INMUEBLE", regex=False)
+            valor_inmuebles = float(patrimonio.loc[activos_mask & inmuebles_mask, "Valor neto"].sum())
+            total_pasivos = abs(float(patrimonio.loc[~activos_mask, "Valor neto"].sum()))
             patrimonio_neto = float(patrimonio["Valor neto"].sum())
             deuda_activos_pct = (total_pasivos / total_activos * 100) if total_activos else 0
 
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("Total activos", f"${total_activos:,.0f}")
-            m2.metric("Total pasivos", f"${total_pasivos:,.0f}")
-            m3.metric("Patrimonio neto", f"${patrimonio_neto:,.0f}")
-            m4.metric("Endeudamiento", f"{deuda_activos_pct:.1f}%")
+            m2.metric("Valor inmuebles", f"${valor_inmuebles:,.0f}")
+            m3.metric("Total pasivos", f"${total_pasivos:,.0f}")
+            m4.metric("Patrimonio neto", f"${patrimonio_neto:,.0f}")
+            m5.metric("Endeudamiento", f"{deuda_activos_pct:.1f}%")
 
             # ======================================================
             # ANÁLISIS EJECUTIVO DE PATRIMONIO V9.17
@@ -6925,7 +7049,8 @@ if archivo:
 
             activos_v917 = patrimonio_v917[patrimonio_v917["Clase"].eq("Activo")].copy()
             pasivos_v917 = patrimonio_v917[patrimonio_v917["Clase"].eq("Pasivo")].copy()
-            activos_liquidos = float(activos_v917.loc[activos_v917["Nivel liquidez"].isin(["Alta", "Media"]), "Valor visual"].sum())
+            diagnostico_patrimonial = calcular_diagnostico_patrimonial(patrimonio_v917)
+            activos_liquidos = diagnostico_patrimonial["activos_liquidos"]
             activos_no_liquidos = float(activos_v917.loc[activos_v917["Nivel liquidez"].eq("Baja"), "Valor visual"].sum())
             pct_liquidez_pat = activos_liquidos / total_activos * 100 if total_activos else 0.0
             activo_principal_valor = float(activos_v917["Valor visual"].max()) if not activos_v917.empty else 0.0
@@ -6933,12 +7058,214 @@ if archivo:
             concentracion_principal = activo_principal_valor / total_activos * 100 if total_activos else 0.0
             top3_activos_pct = activos_v917.nlargest(3, "Valor visual")["Valor visual"].sum() / total_activos * 100 if total_activos else 0.0
 
-            st.markdown("### 🧭 Estado patrimonial y liquidez")
-            ep1, ep2, ep3, ep4 = st.columns(4)
-            ep1.metric("💧 Activos líquidos", f"${activos_liquidos:,.0f}", f"{pct_liquidez_pat:.1f}% de activos")
-            ep2.metric("🏘️ Activos no líquidos", f"${activos_no_liquidos:,.0f}")
-            ep3.metric("🎯 Activo principal", str(activo_principal_nombre)[:24], f"{concentracion_principal:.1f}% de activos")
-            ep4.metric("🧩 Top 3 activos", f"{top3_activos_pct:.1f}%", "Concentración patrimonial")
+            st.markdown("### 🧭 Diagnóstico patrimonial")
+            ep1, ep2, ep3, ep4, ep5 = st.columns(5)
+            ep1.metric("💼 Patrimonio financiero", f"${diagnostico_patrimonial['patrimonio_financiero']:,.0f}")
+            ep2.metric("💧 Activos líquidos", f"${activos_liquidos:,.0f}", f"{pct_liquidez_pat:.1f}% de activos")
+            ep3.metric(
+                "⚖️ Solvencia",
+                f"{diagnostico_patrimonial['solvencia']:.1f} veces"
+                if diagnostico_patrimonial["solvencia"] is not None
+                else "Sin pasivos",
+            )
+            ep4.metric(
+                "🏠 Concentración inmuebles",
+                f"{diagnostico_patrimonial['concentracion_inmuebles_pct']:.1f}%",
+            )
+            ep5.metric(
+                "🏦 LTV inmobiliario",
+                f"{diagnostico_patrimonial['ltv_pct']:.1f}%"
+                if diagnostico_patrimonial["ltv_pct"] is not None
+                else "Sin hipotecas",
+                f"Deuda hipotecaria: ${diagnostico_patrimonial['saldo_hipotecas']:,.0f}",
+            )
+
+            def tarjeta_fondo_maniobra(titulo, valor, formula, icono):
+                if valor < 0:
+                    color = "#FF3B4D"
+                    fondo = "rgba(255, 59, 77, 0.13)"
+                    estado = "🔴 GRAVE · déficit de liquidez"
+                elif valor > 0:
+                    color = "#22C55E"
+                    fondo = "rgba(34, 197, 94, 0.13)"
+                    estado = "🟢 POSITIVO · cobertura suficiente"
+                else:
+                    color = "#F59E0B"
+                    fondo = "rgba(245, 158, 11, 0.13)"
+                    estado = "🟡 NEUTRO · sin margen disponible"
+                valor_texto = f"-${abs(valor):,.0f}" if valor < 0 else f"${valor:,.0f}"
+                st.markdown(
+                    f"""
+                    <div style="background:linear-gradient(145deg,rgba(15,23,42,.96),rgba(30,41,59,.92));
+                                border:1px solid {color};border-radius:16px;padding:18px 20px;
+                                min-height:174px;box-shadow:0 8px 24px rgba(0,0,0,.22);">
+                        <div style="font-size:.95rem;color:#CBD5E1;margin-bottom:8px;">{icono} {titulo}</div>
+                        <div style="font-size:1.85rem;font-weight:800;color:#F8FAFC;margin-bottom:12px;">{valor_texto}</div>
+                        <div style="display:inline-block;background:{fondo};color:{color};border:1px solid {color};
+                                    border-radius:999px;padding:5px 10px;font-weight:800;font-size:.78rem;">
+                            {estado}
+                        </div>
+                        <div style="font-size:.76rem;color:#94A3B8;margin-top:12px;">{formula}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            fm1, fm2 = st.columns(2)
+            with fm1:
+                tarjeta_fondo_maniobra(
+                    "Fondo de maniobra",
+                    diagnostico_patrimonial["fondo_maniobra"],
+                    "Activos corrientes − pasivos corrientes",
+                    "🧰",
+                )
+            with fm2:
+                tarjeta_fondo_maniobra(
+                    "Fondo de maniobra inmediato",
+                    diagnostico_patrimonial["fondo_maniobra_inmediato"],
+                    "Efectivo y ahorros − pasivos corrientes",
+                    "⚡",
+                )
+
+            estado_patrimonial = diagnostico_patrimonial["estado"]
+            mensaje_patrimonial = diagnostico_patrimonial["mensaje"]
+            if estado_patrimonial in {"Excelente", "Sólida"}:
+                st.success(f"🟢 **Salud patrimonial {estado_patrimonial.lower()}:** {mensaje_patrimonial}")
+            elif estado_patrimonial == "Estable":
+                st.warning(f"🟡 **Salud patrimonial estable:** {mensaje_patrimonial}")
+            else:
+                st.error(f"🔴 **Salud patrimonial: {estado_patrimonial.lower()}.** {mensaje_patrimonial}")
+
+            st.markdown("### 🎯 Carteras por objetivo y tiempo")
+            st.caption(
+                "Distribuye automáticamente el patrimonio financiero entre ahorro de corto plazo, "
+                "inversión de medio plazo y previsión de largo plazo. Los inmuebles y demás bienes "
+                "físicos se analizan por separado en Patrimonio."
+            )
+            carteras_objetivo = calcular_carteras_por_objetivo(patrimonio_v917)
+            total_carteras = float(carteras_objetivo["Actual"].sum())
+            estilos_cartera = {
+                "A": {"color": "#22D3EE", "fondo": "rgba(34,211,238,.12)", "icono": "💧"},
+                "B": {"color": "#A78BFA", "fondo": "rgba(167,139,250,.12)", "icono": "📈"},
+                "C": {"color": "#F472B6", "fondo": "rgba(244,114,182,.12)", "icono": "🛡️"},
+            }
+            definiciones_cartera = {
+                "A": "Recursos para gastos próximos, imprevistos y necesidades de corto plazo.",
+                "B": "Recursos destinados a inversión y crecimiento durante el medio plazo.",
+                "C": "Recursos orientados al retiro, la previsión y la creación de patrimonio a largo plazo.",
+            }
+            st.markdown(
+                """
+                <style>
+                .tooltip-cartera {position:relative;display:inline-flex;align-items:center;z-index:20;}
+                .tooltip-cartera-icono {display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;
+                    border-radius:50%;border:1px solid #64748B;color:#E2E8F0;background:#172033;
+                    font-size:.78rem;font-weight:800;cursor:help;}
+                .tooltip-cartera-contenido {visibility:hidden;opacity:0;position:absolute;right:0;top:33px;
+                    width:min(350px,80vw);background:#07111F;border:1px solid #64748B;border-radius:13px;
+                    padding:14px;box-shadow:0 16px 40px rgba(0,0,0,.48);transition:opacity .18s ease;
+                    color:#E2E8F0;text-align:left;z-index:9999;}
+                .tooltip-cartera:hover .tooltip-cartera-contenido,
+                .tooltip-cartera:focus-within .tooltip-cartera-contenido {visibility:visible;opacity:1;}
+                .tooltip-cartera-fila {display:flex;justify-content:space-between;gap:14px;padding:7px 0;
+                    border-bottom:1px solid rgba(148,163,184,.16);font-size:.78rem;}
+                .tooltip-cartera-fila:last-child {border-bottom:0;}
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            columnas_carteras = st.columns(3)
+            for columna_cartera, (_, fila_cartera) in zip(columnas_carteras, carteras_objetivo.iterrows()):
+                codigo_cartera = str(fila_cartera["Cartera"])
+                estilo_cartera = estilos_cartera[codigo_cartera]
+                porcentaje_cartera = float(fila_cartera["Porcentaje"])
+                ancho_barra = min(max(porcentaje_cartera, 0.0), 100.0)
+                badge_rf = "RF ✓" if fila_cartera["Renta fija"] == "Sí" else "RF —"
+                badge_rv = "RV ✓" if fila_cartera["Renta variable"] == "Sí" else "RV —"
+                componentes_cartera = fila_cartera["Componentes"] or []
+                if componentes_cartera:
+                    filas_tooltip = "".join(
+                        f"<div class='tooltip-cartera-fila'>"
+                        f"<span>{html.escape(str(componente['nombre']))}</span>"
+                        f"<span style='white-space:nowrap;font-weight:750;'>"
+                        f"${float(componente['valor']):,.0f} · "
+                        f"{(float(componente['valor']) / total_carteras * 100 if total_carteras else 0):.1f}%"
+                        f"</span></div>"
+                        for componente in componentes_cartera
+                    )
+                else:
+                    filas_tooltip = (
+                        "<div style='font-size:.78rem;color:#94A3B8;padding-top:7px;'>"
+                        "No hay activos clasificados en esta cartera.</div>"
+                    )
+                tooltip_cartera = (
+                    f"<div class='tooltip-cartera' tabindex='0'>"
+                    f"<span class='tooltip-cartera-icono'>ⓘ</span>"
+                    f"<div class='tooltip-cartera-contenido'>"
+                    f"<div style='font-weight:850;color:{estilo_cartera['color']};margin-bottom:6px;'>"
+                    f"¿Qué es {html.escape(str(fila_cartera['Objetivo']))}?</div>"
+                    f"<div style='font-size:.78rem;color:#CBD5E1;line-height:1.4;margin-bottom:10px;'>"
+                    f"{definiciones_cartera[codigo_cartera]}</div>"
+                    f"<div style='font-size:.72rem;color:#94A3B8;font-weight:800;text-transform:uppercase;'>"
+                    f"Qué conforma el {porcentaje_cartera:.1f}%</div>"
+                    f"{filas_tooltip}</div></div>"
+                )
+                with columna_cartera:
+                    st.markdown(
+                        f"""
+                        <div style="background:linear-gradient(145deg,rgba(15,23,42,.97),rgba(30,41,59,.93));
+                                    border:1px solid {estilo_cartera['color']};border-radius:18px;padding:20px;
+                                    min-height:270px;box-shadow:0 10px 28px rgba(0,0,0,.24);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                                <span style="font-size:1.9rem;">{estilo_cartera['icono']}</span>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    {tooltip_cartera}
+                                    <span style="background:{estilo_cartera['fondo']};color:{estilo_cartera['color']};
+                                                 border:1px solid {estilo_cartera['color']};border-radius:999px;
+                                                 padding:4px 10px;font-size:.76rem;font-weight:800;">
+                                        CARTERA {codigo_cartera}
+                                    </span>
+                                </div>
+                            </div>
+                            <div style="font-size:1.16rem;font-weight:800;color:#F8FAFC;">
+                                {fila_cartera['Objetivo']}
+                            </div>
+                            <div style="font-size:.82rem;color:#94A3B8;margin-top:3px;">
+                                {fila_cartera['Tiempo']} plazo · {fila_cartera['Activo']}
+                            </div>
+                            <div style="font-size:1.65rem;font-weight:850;color:{estilo_cartera['color']};margin-top:18px;">
+                                ${float(fila_cartera['Actual']):,.0f}
+                            </div>
+                            <div style="display:flex;justify-content:space-between;color:#CBD5E1;
+                                        font-size:.79rem;margin:8px 0 6px;">
+                                <span>Participación</span><strong>{porcentaje_cartera:.1f}%</strong>
+                            </div>
+                            <div style="height:8px;background:rgba(148,163,184,.18);border-radius:999px;overflow:hidden;">
+                                <div style="width:{ancho_barra:.2f}%;height:100%;background:{estilo_cartera['color']};
+                                            border-radius:999px;"></div>
+                            </div>
+                            <div style="display:flex;gap:8px;margin-top:17px;">
+                                <span style="background:{estilo_cartera['fondo']};color:{estilo_cartera['color']};
+                                             border-radius:8px;padding:5px 9px;font-size:.75rem;font-weight:700;">{badge_rf}</span>
+                                <span style="background:{estilo_cartera['fondo']};color:{estilo_cartera['color']};
+                                             border-radius:8px;padding:5px 9px;font-size:.75rem;font-weight:700;">{badge_rv}</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+            st.markdown(
+                f"""
+                <div style="margin-top:14px;background:linear-gradient(90deg,rgba(34,211,238,.12),rgba(167,139,250,.12),rgba(244,114,182,.12));
+                            border:1px solid rgba(148,163,184,.35);border-radius:14px;padding:14px 18px;
+                            display:flex;justify-content:space-between;align-items:center;gap:16px;">
+                    <span style="color:#CBD5E1;font-weight:700;">💼 Total patrimonio financiero distribuido</span>
+                    <span style="color:#F8FAFC;font-size:1.35rem;font-weight:850;">${total_carteras:,.0f}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             if concentracion_principal >= 70:
                 st.warning(f"⚠️ **Concentración alta:** {activo_principal_nombre} representa {concentracion_principal:.1f}% de los activos. Un patrimonio alto puede seguir siendo poco líquido o depender demasiado de un solo bien.")
@@ -6986,19 +7313,138 @@ if archivo:
                 else:
                     st.success("✅ No hay pasivos patrimoniales registrados.")
 
-            st.markdown("### 💧 Liquidez patrimonial")
-            liquidez_resumen = activos_v917.groupby("Nivel liquidez", as_index=False)["Valor visual"].sum() if not activos_v917.empty else pd.DataFrame()
-            if not liquidez_resumen.empty:
-                colores_liq = {"Alta":"#00FF9C", "Media":"#00D9FF", "Baja":"#FFB000", "Sin clasificar":"#A855F7", "No aplica":"#64748B"}
-                fig_liq_v917 = go.Figure(go.Pie(
-                    labels=liquidez_resumen["Nivel liquidez"], values=liquidez_resumen["Valor visual"], hole=.55,
-                    marker=dict(colors=[colores_liq.get(x, "#94A3B8") for x in liquidez_resumen["Nivel liquidez"]], line=dict(color="#000", width=2)),
-                    customdata=[[v, (v/total_activos*100 if total_activos else 0)] for v in liquidez_resumen["Valor visual"]],
-                    hovertemplate="<b>💧 %{label}</b><br>💰 💰 Valor: $%{customdata[0]:,.0f}<br>📊 📊 Participación: %{customdata[1]:.1f}%<extra></extra>",
-                    textinfo="label+percent",
-                ))
-                fig_liq_v917.add_annotation(text=f"{pct_liquidez_pat:.1f}%<br><span style='font-size:11px'>liquidez</span>", x=.5, y=.5, showarrow=False, font=dict(color="#F8FAFC", size=18))
-                st.plotly_chart(estilo_grafico(fig_liq_v917, "💧 Distribución por nivel de liquidez"), use_container_width=True, key="pat_liquidez_v917")
+            st.markdown("### 💧 Liquidez y generación de renta")
+            st.caption(
+                "Compara qué tan disponibles están los activos y qué proporción del patrimonio genera algún rendimiento."
+            )
+            col_liquidez_pat, col_renta_pat = st.columns(2)
+
+            with col_liquidez_pat:
+                st.markdown("#### 💧 Liquidez patrimonial")
+                liquidez_base = activos_v917.loc[activos_v917["Valor visual"].gt(0)].copy()
+                liquidez_resumen = (
+                    liquidez_base.groupby("Nivel liquidez", as_index=False)["Valor visual"].sum()
+                    if not liquidez_base.empty else pd.DataFrame()
+                )
+                if liquidez_resumen.empty or float(liquidez_resumen["Valor visual"].sum()) <= 0:
+                    st.info("No hay activos con liquidez clasificada para construir la gráfica.")
+                else:
+                    total_liquidez_grafico = float(liquidez_resumen["Valor visual"].sum())
+                    detalles_liquidez = []
+                    for _, fila_liq in liquidez_resumen.iterrows():
+                        nivel_liq = fila_liq["Nivel liquidez"]
+                        componentes_liq = (
+                            liquidez_base.loc[liquidez_base["Nivel liquidez"].eq(nivel_liq)]
+                            .groupby("Elemento", as_index=False)["Valor visual"]
+                            .sum()
+                            .sort_values("Valor visual", ascending=False)
+                        )
+                        detalles_liquidez.append("<br>".join(
+                            f"• {html.escape(str(componente['Elemento']))}: ${float(componente['Valor visual']):,.0f}"
+                            for _, componente in componentes_liq.iterrows()
+                        ))
+
+                    colores_liq = {
+                        "Alta": "#22C55E", "Media": "#22D3EE", "Baja": "#F97316",
+                        "Sin clasificar": "#A78BFA", "No aplica": "#64748B",
+                    }
+                    porcentaje_liquidez_util = float(
+                        liquidez_resumen.loc[
+                            liquidez_resumen["Nivel liquidez"].isin(["Alta", "Media"]), "Valor visual"
+                        ].sum()
+                    ) / total_liquidez_grafico * 100
+                    fig_liq_v917 = go.Figure(go.Pie(
+                        labels=liquidez_resumen["Nivel liquidez"],
+                        values=liquidez_resumen["Valor visual"],
+                        hole=0.60,
+                        sort=False,
+                        marker=dict(
+                            colors=[colores_liq.get(x, "#94A3B8") for x in liquidez_resumen["Nivel liquidez"]],
+                            line=dict(color="#020617", width=3),
+                        ),
+                        customdata=[[detalle] for detalle in detalles_liquidez],
+                        texttemplate="<b>%{label}</b><br>%{percent:.1%}",
+                        textposition="inside",
+                        hovertemplate=(
+                            "<b>Liquidez %{label}</b><br>"
+                            "Valor: $%{value:,.0f}<br>"
+                            "Participación: %{percent:.1%}<br><br>"
+                            "<b>Activos incluidos</b><br>%{customdata[0]}<extra></extra>"
+                        ),
+                    ))
+                    fig_liq_v917.add_annotation(
+                        text=f"<b>{porcentaje_liquidez_util:.1f}%</b><br><span style='font-size:11px'>alta + media</span>",
+                        x=0.5, y=0.5, showarrow=False,
+                        font=dict(color="#F8FAFC", size=20),
+                    )
+                    fig_liq_v917.update_layout(
+                        template="plotly_dark", height=440,
+                        paper_bgcolor="#000000", plot_bgcolor="#000000",
+                        margin=dict(t=25, b=80, l=20, r=20),
+                        legend=dict(orientation="h", y=-0.12, x=0.5, xanchor="center"),
+                        hoverlabel=dict(bgcolor="#0F172A", font=dict(color="#F8FAFC", size=12)),
+                    )
+                    st.plotly_chart(
+                        fig_liq_v917,
+                        use_container_width=True,
+                        key="pat_liquidez_v917_reparada",
+                    )
+
+            with col_renta_pat:
+                st.markdown("#### 💸 Patrimonio que produce renta")
+                distribucion_renta = calcular_distribucion_renta_patrimonio(patrimonio_v917)
+                if distribucion_renta.empty or float(distribucion_renta["Valor"].sum()) <= 0:
+                    st.info("No hay activos con valor suficiente para calcular esta distribución.")
+                else:
+                    total_renta_pat = float(distribucion_renta["Valor"].sum())
+                    detalles_renta = []
+                    for _, fila_renta in distribucion_renta.iterrows():
+                        componentes_renta = fila_renta["Componentes"] or []
+                        detalles_renta.append(
+                            "<br>".join(
+                                f"• {html.escape(str(componente['nombre']))}: "
+                                f"${float(componente['valor']):,.0f} "
+                                f"({float(componente['valor']) / total_renta_pat * 100:.1f}%)"
+                                for componente in componentes_renta
+                            ) if componentes_renta else "Sin activos en este grupo"
+                        )
+                    porcentaje_productivo = float(
+                        distribucion_renta.loc[
+                            distribucion_renta["Estado renta"].eq("Produce renta"), "Porcentaje"
+                        ].sum()
+                    )
+                    fig_renta_patrimonio = go.Figure(go.Pie(
+                        labels=distribucion_renta["Estado renta"],
+                        values=distribucion_renta["Valor"],
+                        hole=0.60,
+                        sort=False,
+                        marker=dict(colors=["#22C55E", "#F97316"], line=dict(color="#020617", width=3)),
+                        customdata=[[detalle] for detalle in detalles_renta],
+                        texttemplate="<b>%{label}</b><br>%{percent:.1%}",
+                        textposition="inside",
+                        hovertemplate=(
+                            "<b>%{label}</b><br>Valor: $%{value:,.0f}<br>"
+                            "Porcentaje: %{percent:.1%}<br><br>"
+                            "<b>Activos incluidos</b><br>%{customdata[0]}<extra></extra>"
+                        ),
+                    ))
+                    fig_renta_patrimonio.add_annotation(
+                        text=f"<b>{porcentaje_productivo:.1f}%</b><br><span style='font-size:11px'>produce renta</span>",
+                        x=0.5, y=0.5, showarrow=False,
+                        font=dict(color="#F8FAFC", size=20),
+                    )
+                    fig_renta_patrimonio.update_layout(
+                        template="plotly_dark", height=440,
+                        paper_bgcolor="#000000", plot_bgcolor="#000000",
+                        margin=dict(t=25, b=80, l=20, r=20),
+                        legend=dict(orientation="h", y=-0.12, x=0.5, xanchor="center"),
+                        hoverlabel=dict(bgcolor="#0F172A", font=dict(color="#F8FAFC", size=12)),
+                    )
+                    st.plotly_chart(
+                        fig_renta_patrimonio,
+                        use_container_width=True,
+                        key="patrimonio_produce_renta_donut_lado_derecho_v2",
+                    )
 
             st.markdown("### ⚖️ Solidez patrimonial")
             sp1, sp2, sp3 = st.columns(3)
@@ -7580,16 +8026,7 @@ if archivo:
         # UTILIDADES LOCALES DE LA PESTAÑA SCORE
         # ======================================================
         def _pct_0_100(valor):
-            """Normaliza proporciones 0–1 y porcentajes 0–100 a una escala 0–100."""
-            try:
-                numero = float(valor)
-            except (TypeError, ValueError):
-                return 0.0
-            if pd.isna(numero):
-                return 0.0
-            if -1.0 <= numero <= 1.0:
-                numero *= 100.0
-            return min(max(numero, 0.0), 100.0)
+            return normalizar_pct_0_100(valor)
 
         def _nivel_score(valor):
             if valor >= 85:
@@ -7609,128 +8046,16 @@ if archivo:
                 return "En atención", "🟡"
             return "Riesgo", "🔴"
 
-        def _calcular_componentes_score(
-            gastos_valor,
-            ingresos_valor,
-            presupuesto_valor,
-            activos_valor,
-            pasivos_valor,
-            fondo_valor,
-            gasto_mensual_valor,
-            metas_df,
-            gastos_df,
-        ):
-            pts_pres, ratio_pres = puntaje_presupuesto(gastos_valor, presupuesto_valor)
-            pts_aho, pct_aho = puntaje_ahorro(ingresos_valor - gastos_valor, ingresos_valor)
-            pts_end, pct_end = puntaje_endeudamiento(pasivos_valor, activos_valor)
-            pts_inn, pct_inn, monto_inn, innecesarios_df = puntaje_gastos_innecesarios(gastos_df)
-            pts_eme, _ = puntaje_fondo_emergencia(fondo_valor, gasto_mensual_valor)
-            pts_met, avance_met = puntaje_metas(metas_df)
-
-            ratio_pres = _pct_0_100(ratio_pres)
-            pct_aho = max(min(float(pct_aho), 100.0), -100.0)
-            pct_end = _pct_0_100(pct_end)
-            pct_inn = _pct_0_100(pct_inn)
-            avance_met = _pct_0_100(avance_met)
-
-            datos = [
-                {
-                    "Indicador": "Presupuesto",
-                    "Icono": "🎯",
-                    "Puntos": float(pts_pres),
-                    "Máximo": 25.0,
-                    "Puntaje %": _pct_0_100(float(pts_pres) / 25.0),
-                    "Base": f"Ejecución presupuestal: {ratio_pres:.1f}%",
-                },
-                {
-                    "Indicador": "Ahorro",
-                    "Icono": "💰",
-                    "Puntos": float(pts_aho),
-                    "Máximo": 20.0,
-                    "Puntaje %": _pct_0_100(float(pts_aho) / 20.0),
-                    "Base": f"Capacidad de ahorro: {pct_aho:.1f}%",
-                },
-                {
-                    "Indicador": "Endeudamiento",
-                    "Icono": "💳",
-                    "Puntos": float(pts_end),
-                    "Máximo": 20.0,
-                    "Puntaje %": _pct_0_100(float(pts_end) / 20.0),
-                    "Base": f"Pasivos / activos: {pct_end:.1f}%",
-                },
-                {
-                    "Indicador": "Gastos innecesarios",
-                    "Icono": "🛒",
-                    "Puntos": float(pts_inn),
-                    "Máximo": 10.0,
-                    "Puntaje %": _pct_0_100(float(pts_inn) / 10.0),
-                    "Base": f"Gasto marcado: {pct_inn:.1f}%",
-                },
-                {
-                    "Indicador": "Fondo emergencia",
-                    "Icono": "🛡️",
-                    "Puntos": float(pts_eme),
-                    "Máximo": 15.0,
-                    "Puntaje %": _pct_0_100(float(pts_eme) / 15.0),
-                    "Base": (
-                        f"Cobertura: {(fondo_valor / gasto_mensual_valor):.1f} meses"
-                        if gasto_mensual_valor > 0
-                        else "Sin gasto mensual de referencia"
-                    ),
-                },
-                {
-                    "Indicador": "Metas",
-                    "Icono": "🏁",
-                    "Puntos": float(pts_met),
-                    "Máximo": 10.0,
-                    "Puntaje %": _pct_0_100(float(pts_met) / 10.0),
-                    "Base": f"Cumplimiento promedio: {avance_met:.1f}%",
-                },
-            ]
-            return datos, {
-                "ratio_presupuesto": ratio_pres,
-                "pct_ahorro": pct_aho,
-                "pct_endeuda": pct_end,
-                "pct_innecesarios": pct_inn,
-                "monto_innecesarios": float(monto_inn),
-                "avance_metas": avance_met,
-                "df_innecesarios": innecesarios_df,
-            }
-
         # ======================================================
         # 1. BASE ACTUAL DEL SCORE
         # ======================================================
-        total_activos_score = (
-            float(
-                patrimonio.loc[
-                    patrimonio["Tipo"].map(normalizar).eq("ACTIVO"),
-                    "Valor neto",
-                ].sum()
-            )
-            if not patrimonio.empty
-            else 0.0
-        )
-        total_pasivos_score = (
-            abs(
-                float(
-                    patrimonio.loc[
-                        ~patrimonio["Tipo"].map(normalizar).eq("ACTIVO"),
-                        "Valor neto",
-                    ].sum()
-                )
-            )
-            if not patrimonio.empty
-            else 0.0
-        )
-        periodos_score = (
-            max(len(df[["ANIO", "MES"]].dropna(how="all").drop_duplicates()), 1)
-            if not df.empty
-            else 1
-        )
+        total_activos_score = score_actual["activos"]
+        total_pasivos_score = score_actual["pasivos"]
+        periodos_score = score_actual["cantidad_periodos"]
         presupuesto_total_score = float(presupuesto_mensual_general or 0.0)
-        gasto_mensual_promedio = float(total_gastos) / periodos_score if periodos_score else 0.0
+        gasto_mensual_promedio = score_actual["gasto_mensual"]
         gasto_promedio_diario_fondo = gasto_mensual_promedio / 30 if gasto_mensual_promedio else 0.0
-        fondo_emergencia_valor = valor_fondo_emergencia(patrimonio)
+        fondo_emergencia_valor = score_actual["fondo"]
         meta_fondo_emergencia = gasto_mensual_promedio * 3
         avance_fondo_emergencia = (
             fondo_emergencia_valor / meta_fondo_emergencia * 100
@@ -7751,18 +8076,9 @@ if archivo:
             else 0.0
         )
 
-        componentes, metricas_score = _calcular_componentes_score(
-            gastos_valor=float(total_gastos),
-            ingresos_valor=float(total_ingresos),
-            presupuesto_valor=presupuesto_total_score,
-            activos_valor=total_activos_score,
-            pasivos_valor=total_pasivos_score,
-            fondo_valor=fondo_emergencia_valor,
-            gasto_mensual_valor=gasto_mensual_promedio,
-            metas_df=metas,
-            gastos_df=df,
-        )
-        score_total = round(sum(c["Puntos"] for c in componentes), 1)
+        componentes = score_actual["componentes"]
+        metricas_score = score_actual["metricas"]
+        score_total = score_actual["score"]
         nivel_score, icono_score = _nivel_score(score_total)
         estado_score = etiqueta_score(score_total)
 
@@ -8011,19 +8327,23 @@ if archivo:
             ingresos_df=ingresos_filtrados,
             meses_sel=meses_sel,
             presupuesto_mensual=presupuesto_mensual_por_periodo or presupuesto_mensual_general,
+            periodos_sel=periodos_sel,
         )
 
         historial_score_rows = []
         if not flujo_score_hist.empty:
             for _, fila_mes in flujo_score_hist.iterrows():
                 mes_nombre = fila_mes["MES"]
-                gastos_mes_df = df[
-                    df["MES"].astype(str).str.upper().eq(str(mes_nombre).upper())
-                ].copy()
+                mes_base = fila_mes.get("MES_NOMBRE", mes_nombre)
+                anio_base = fila_mes.get("ANIO")
+                mascara_mes = df["MES"].map(normalizar_mes).eq(normalizar_mes(mes_base))
+                if pd.notna(anio_base) and "ANIO" in df.columns:
+                    mascara_mes &= pd.to_numeric(df["ANIO"], errors="coerce").eq(int(anio_base))
+                gastos_mes_df = df[mascara_mes].copy()
                 gasto_mes = float(fila_mes.get("Gastos", 0.0))
                 ingreso_mes = float(fila_mes.get("Ingresos", 0.0))
                 presupuesto_mes = float(fila_mes.get("Presupuesto mensual", 0.0))
-                comps_mes, _ = _calcular_componentes_score(
+                comps_mes, _ = calcular_componentes_score(
                     gastos_valor=gasto_mes,
                     ingresos_valor=ingreso_mes,
                     presupuesto_valor=presupuesto_mes,
@@ -8295,7 +8615,7 @@ if archivo:
         fondo_simulado = fondo_emergencia_valor + float(aporte_fondo)
         gasto_mensual_simulado = gastos_simulados / periodos_score if periodos_score else gastos_simulados
 
-        componentes_sim, _ = _calcular_componentes_score(
+        componentes_sim, _ = calcular_componentes_score(
             gastos_valor=gastos_simulados,
             ingresos_valor=float(total_ingresos),
             presupuesto_valor=presupuesto_total_score,

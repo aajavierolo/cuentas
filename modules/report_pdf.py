@@ -117,7 +117,7 @@ def _footer(canvas, doc):
     canvas.rect(0, 0, width, 0.65 * cm, fill=1, stroke=0)
     canvas.setFillColor(colors.HexColor("#CBD5E1"))
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V13 - Informe por preguntas")
+    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V14 - Informe por preguntas")
     canvas.drawRightString(width - 1.2 * cm, 0.25 * cm, f"Página {doc.page}")
     canvas.restoreState()
 
@@ -647,14 +647,16 @@ def generar_informe_financiero_pdf(
     total_ingresos: float, total_gastos: float, balance: float,
     gastos: pd.DataFrame, ingresos: pd.DataFrame, flujo: pd.DataFrame,
     deudas: pd.DataFrame, patrimonio: pd.DataFrame, metas: Any,
-    felicidad: pd.DataFrame, presupuesto_mensual: float = 0.0,
+    felicidad: pd.DataFrame, presupuesto_periodo: float = 0.0,
+    score_financiero: Optional[float] = None,
+    componentes_score: Optional[Iterable[Dict[str, Any]]] = None,
 ) -> bytes:
     styles = _styles()
     output = BytesIO()
     doc = BaseDocTemplate(
         output, pagesize=PAGE, leftMargin=1.2 * cm, rightMargin=1.2 * cm,
         topMargin=.9 * cm, bottomMargin=.9 * cm,
-        title="Altium Financiero V13 - Informe por preguntas", author="Altium Financiero",
+        title="Altium Financiero V14 - Informe por preguntas", author="Altium Financiero",
     )
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="normal")
     doc.addPageTemplates(PageTemplate(id="main", frames=[frame], onPage=_footer))
@@ -678,7 +680,7 @@ def generar_informe_financiero_pdf(
     story.append(_kpi_table([
         ("Resultado", "Superávit" if balance >= 0 else "Déficit"),
         ("Transacciones", f"{len(gastos):,}".replace(",", ".")),
-        ("Presupuesto mensual", _money(presupuesto_mensual)),
+        ("Presupuesto del periodo", _money(presupuesto_periodo)),
         ("Saldo de deudas", _money(deuda_saldo)),
     ], styles))
     _add_chart(story, _chart_flow(flujo))
@@ -777,7 +779,7 @@ def generar_informe_financiero_pdf(
 
     # 4. Presupuesto
     story += [_question_header(3, styles), Spacer(1, .2 * cm)]
-    presupuesto_total_pdf = float(pd.to_numeric(flujo.get("Presupuesto mensual", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if flujo is not None and not flujo.empty else float(presupuesto_mensual or 0)
+    presupuesto_total_pdf = float(pd.to_numeric(flujo.get("Presupuesto mensual", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if flujo is not None and not flujo.empty else float(presupuesto_periodo or 0)
     gasto_total_pdf = float(pd.to_numeric(flujo.get("Gastos", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if flujo is not None and not flujo.empty else float(total_gastos)
     disponible_pdf = presupuesto_total_pdf - gasto_total_pdf
     ejecucion_pdf = gasto_total_pdf / presupuesto_total_pdf * 100 if presupuesto_total_pdf else 0.0
@@ -989,21 +991,25 @@ def generar_informe_financiero_pdf(
 
     # 8. Score
     gasto_ingreso = (total_gastos / total_ingresos * 100) if total_ingresos else 0.0
-    deuda_ingreso = (deuda_saldo / total_ingresos * 100) if total_ingresos else 0.0
     ahorro_pct = (balance / total_ingresos * 100) if total_ingresos else 0.0
-    score = max(0.0, min(100.0, 65 + min(max(ahorro_pct, -30), 25) - max(gasto_ingreso - 85, 0) - min(deuda_ingreso / 5, 20)))
+    score = float(score_financiero or 0.0)
+    componentes_pdf = list(componentes_score or [])
     story += [_question_header(7, styles), Spacer(1, .25 * cm)]
     story.append(_kpi_table([
-        ("Score referencial", f"{score:.1f}/100"), ("Ahorro", f"{ahorro_pct:.1f}%"),
-        ("Gasto / ingreso", f"{gasto_ingreso:.1f}%"), ("Deuda / ingreso", f"{deuda_ingreso:.1f}%"),
+        ("Score financiero", f"{score:.1f}/100"), ("Ahorro", f"{ahorro_pct:.1f}%"),
+        ("Gasto / ingreso", f"{gasto_ingreso:.1f}%"), ("Componentes", str(len(componentes_pdf))),
     ], styles))
-    nivel_score = "saludable" if score >= 75 else "intermedio" if score >= 50 else "vulnerable"
+    nivel_score = "excelente" if score >= 85 else "bueno" if score >= 70 else "en atención" if score >= 50 else "riesgo alto"
     score_texto = (
         f"El resultado de <b>{score:.1f}/100</b> ubica la situación en un nivel <b>{nivel_score}</b>. "
-        f"El ahorro aporta positivamente cuando existe, mientras que una relación elevada de gasto o deuda frente al ingreso reduce el resultado. "
-        "Es una señal orientativa; la pestaña Score conserva el cálculo detallado de cada componente."
+        "Este valor usa exactamente los mismos seis componentes, ponderaciones y filtros de la pestaña Score."
     )
     story += [Spacer(1, .35 * cm), _insight_box("Interpretación del score", score_texto, styles, "green" if score >= 75 else "yellow" if score >= 50 else "red")]
+    if componentes_pdf:
+        tabla_componentes = pd.DataFrame(componentes_pdf)
+        columnas_componentes = [c for c in ["Indicador", "Puntos", "Máximo", "Puntaje %", "Base"] if c in tabla_componentes.columns]
+        story += [Spacer(1, .3 * cm), Paragraph("Componentes del score", styles["section"])]
+        story.append(_df_table(tabla_componentes[columnas_componentes], styles, max_rows=10))
     if isinstance(metas, pd.DataFrame) and not metas.empty:
         story += [Spacer(1, .4 * cm), Paragraph("Metas registradas", styles["question"]), _df_table(metas, styles, max_rows=20)]
     story.append(PageBreak())

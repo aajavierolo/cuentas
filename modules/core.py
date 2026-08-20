@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import unicodedata
 
-st.set_page_config(page_title="Altium Financiero V13", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Estado Financiero", layout="wide", page_icon="📊")
 
 PALETA_CATEGORIAS = [
     "#4F46E5", "#0EA5E9", "#14B8A6", "#22C55E", "#F59E0B",
@@ -1177,11 +1177,60 @@ def obtener_presupuestos_periodo(historico, periodos):
     return cat, sub, total, mensual
 
 
-def presupuestos_para_dataframe(historico, df):
-    if df is None or df.empty or "ANIO" not in df.columns or "MES" not in df.columns:
+def presupuestos_para_dataframe(
+    historico,
+    df=None,
+    periodos=None,
+    categorias=None,
+    subcategorias=None,
+):
+    """Calcula el presupuesto con el mismo periodo y clasificación de los gastos.
+
+    ``periodos`` permite conservar meses sin movimientos. Si no se proporciona,
+    se mantiene la compatibilidad usando los pares ANIO/MES del DataFrame.
+    """
+    if historico is None or historico.empty:
         return {}, {}, 0.0, {}
-    periodos = df[["ANIO", "MES"]].dropna().drop_duplicates().itertuples(index=False, name=None)
-    return obtener_presupuestos_periodo(historico, list(periodos))
+
+    if periodos is None:
+        if df is None or df.empty or "ANIO" not in df.columns or "MES" not in df.columns:
+            return {}, {}, 0.0, {}
+        periodos = list(
+            df[["ANIO", "MES"]]
+            .dropna()
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        )
+
+    claves = {
+        (int(anio), normalizar_mes(mes))
+        for anio, mes in periodos
+        if pd.notna(anio) and normalizar_mes(mes) in MESES_NUM
+    }
+    if not claves:
+        return {}, {}, 0.0, {}
+
+    tmp = historico[
+        historico.apply(
+            lambda fila: (int(fila["ANIO"]), normalizar_mes(fila["MES"])) in claves,
+            axis=1,
+        )
+    ].copy()
+
+    if categorias is not None:
+        categorias_norm = {normalizar(valor) for valor in categorias}
+        tmp = tmp[tmp["CATEGORIA"].isin(categorias_norm)]
+    if subcategorias is not None:
+        subcategorias_norm = {normalizar(valor) for valor in subcategorias}
+        tmp = tmp[tmp["CONCEPTO"].isin(subcategorias_norm)]
+
+    if tmp.empty:
+        return {}, {}, 0.0, {}
+    cat = tmp.groupby("CATEGORIA")["PRESUPUESTO"].sum().to_dict()
+    sub = tmp.groupby(["CATEGORIA", "CONCEPTO"])["PRESUPUESTO"].sum().to_dict()
+    total = float(tmp["PRESUPUESTO"].sum())
+    mensual = tmp.groupby(["ANIO", "MES"])["PRESUPUESTO"].sum().to_dict()
+    return cat, sub, total, mensual
 
 
 def presupuesto_categoria_mes(historico, categoria, mes, anio=None):
@@ -1289,49 +1338,106 @@ def ordenar_por_mes(df, col="MES"):
     return tmp
 
 
-def construir_flujo_mensual(gastos_df, ingresos_df, meses_sel=None, presupuesto_mensual=0):
+def construir_flujo_mensual(
+    gastos_df,
+    ingresos_df,
+    meses_sel=None,
+    presupuesto_mensual=0,
+    periodos_sel=None,
+):
     """Construye una sola tabla mensual para todas las gráficas ejecutivas.
 
     La clave es normalizar el mes antes de agrupar y combinar, de manera que
     ingresos y gastos compartan un único eje X.
     """
-    meses_base = [normalizar_mes(m) for m in (meses_sel or MESES_ORDEN)]
-    meses_base = [m for m in meses_base if m in MESES_NUM]
-    if not meses_base:
-        meses_base = MESES_ORDEN.copy()
-    meses_base = sorted(set(meses_base), key=lambda m: MESES_NUM.get(m, 99))
+    def _periodos_dataframe(frame, fecha_columna):
+        if frame is None or frame.empty:
+            return pd.Series(dtype="period[M]")
+        if fecha_columna in frame.columns:
+            fechas = pd.to_datetime(frame[fecha_columna], errors="coerce")
+            return fechas.dt.to_period("M")
+        if {"ANIO", "MES"}.issubset(frame.columns):
+            fechas = frame.apply(
+                lambda fila: pd.Timestamp(
+                    year=int(fila["ANIO"]),
+                    month=MESES_NUM.get(normalizar_mes(fila["MES"]), 1),
+                    day=1,
+                ) if pd.notna(fila["ANIO"]) and normalizar_mes(fila["MES"]) in MESES_NUM else pd.NaT,
+                axis=1,
+            )
+            return pd.to_datetime(fechas, errors="coerce").dt.to_period("M")
+        return pd.Series(pd.NaT, index=frame.index, dtype="period[M]")
+
+    if periodos_sel:
+        periodos_base = []
+        for valor in periodos_sel:
+            if isinstance(valor, tuple) and len(valor) == 2:
+                anio, mes = valor
+                mes_norm = normalizar_mes(mes)
+                if pd.notna(anio) and mes_norm in MESES_NUM:
+                    periodos_base.append(pd.Period(year=int(anio), month=MESES_NUM[mes_norm], freq="M"))
+            else:
+                try:
+                    periodos_base.append(pd.Period(valor, freq="M"))
+                except (TypeError, ValueError):
+                    continue
+    else:
+        periodos_base = list(_periodos_dataframe(gastos_df, "GASTOS_FECHA").dropna())
+        periodos_base += list(_periodos_dataframe(ingresos_df, "INGRESOS_FECHA").dropna())
+        if not periodos_base and meses_sel:
+            anio_actual = int(pd.Timestamp.today().year)
+            periodos_base = [
+                pd.Period(year=anio_actual, month=MESES_NUM[m], freq="M")
+                for m in (normalizar_mes(x) for x in meses_sel)
+                if m in MESES_NUM
+            ]
+
+    periodos_base = sorted(set(periodos_base))
+    if not periodos_base:
+        return pd.DataFrame(columns=[
+            "PERIODO", "ANIO", "MES_NOMBRE", "MES", "Gastos", "Ingresos",
+            "Presupuesto mensual", "Balance", "Balance acumulado",
+            "Diferencia vs presupuesto", "Capacidad ahorro %",
+            "Estado balance", "Estado presupuesto",
+        ])
 
     gastos_tmp = gastos_df.copy()
     if not gastos_tmp.empty:
-        gastos_tmp["MES"] = gastos_tmp["MES"].map(normalizar_mes)
+        gastos_tmp["PERIODO"] = _periodos_dataframe(gastos_tmp, "GASTOS_FECHA")
         gastos_mes = (
-            gastos_tmp.groupby("MES", as_index=False)["GASTOS_CANTIDAD"]
+            gastos_tmp.dropna(subset=["PERIODO"]).groupby("PERIODO", as_index=False)["GASTOS_CANTIDAD"]
             .sum()
             .rename(columns={"GASTOS_CANTIDAD": "Gastos"})
         )
     else:
-        gastos_mes = pd.DataFrame(columns=["MES", "Gastos"])
+        gastos_mes = pd.DataFrame(columns=["PERIODO", "Gastos"])
 
     ingresos_tmp = ingresos_df.copy()
     if not ingresos_tmp.empty:
-        ingresos_tmp["MES"] = ingresos_tmp["MES"].map(normalizar_mes)
+        ingresos_tmp["PERIODO"] = _periodos_dataframe(ingresos_tmp, "INGRESOS_FECHA")
         ingresos_mes = (
-            ingresos_tmp.groupby("MES", as_index=False)["INGRESOS_CANTIDAD"]
+            ingresos_tmp.dropna(subset=["PERIODO"]).groupby("PERIODO", as_index=False)["INGRESOS_CANTIDAD"]
             .sum()
             .rename(columns={"INGRESOS_CANTIDAD": "Ingresos"})
         )
     else:
-        ingresos_mes = pd.DataFrame(columns=["MES", "Ingresos"])
+        ingresos_mes = pd.DataFrame(columns=["PERIODO", "Ingresos"])
 
-    flujo = pd.DataFrame({"MES": meses_base})
-    flujo = flujo.merge(gastos_mes, on="MES", how="left")
-    flujo = flujo.merge(ingresos_mes, on="MES", how="left")
+    flujo = pd.DataFrame({"PERIODO": periodos_base})
+    flujo = flujo.merge(gastos_mes, on="PERIODO", how="left")
+    flujo = flujo.merge(ingresos_mes, on="PERIODO", how="left")
     flujo[["Gastos", "Ingresos"]] = flujo[["Gastos", "Ingresos"]].fillna(0)
+    flujo["ANIO"] = flujo["PERIODO"].map(lambda periodo: int(periodo.year))
+    flujo["MES_NOMBRE"] = flujo["PERIODO"].map(lambda periodo: MESES_ORDEN[int(periodo.month) - 1])
+    varios_anios = flujo["ANIO"].nunique() > 1
+    flujo["MES"] = flujo.apply(
+        lambda fila: f"{fila['MES_NOMBRE']} {fila['ANIO']}" if varios_anios else fila["MES_NOMBRE"],
+        axis=1,
+    )
     if isinstance(presupuesto_mensual, dict):
-        def _pres_mes(m):
-            candidatos = [v for (a, mes), v in presupuesto_mensual.items() if normalizar_mes(mes) == normalizar_mes(m)]
-            return float(sum(candidatos)) if candidatos else 0.0
-        flujo["Presupuesto mensual"] = flujo["MES"].map(_pres_mes)
+        def _pres_mes(fila):
+            return float(presupuesto_mensual.get((int(fila["ANIO"]), fila["MES_NOMBRE"]), 0.0) or 0.0)
+        flujo["Presupuesto mensual"] = flujo.apply(_pres_mes, axis=1)
     else:
         flujo["Presupuesto mensual"] = float(presupuesto_mensual or 0)
     flujo["Balance"] = flujo["Ingresos"] - flujo["Gastos"]
@@ -1714,6 +1820,11 @@ def normalizar_columnas_patrimonio(df):
     equivalencias = {
         "FECHA": "Fecha",
         "TIPO": "Tipo",
+        "CLASIFICACION": "Tipo",
+        "TIPO DE PRODUCTO": "Tipo de producto",
+        "TIPO PRODUCTO": "Tipo de producto",
+        "DISPONIBILIDAD EFECTIVO": "Disponibilidad de efectivo",
+        "DISPONIBILIDAD DE EFECTIVO": "Disponibilidad de efectivo",
         "CATEGORIA": "Categoría",
         "SUBCATEGORIA": "Subcategoría",
         "DESCRIPCION": "Descripción",
@@ -1737,6 +1848,9 @@ def normalizar_columnas_patrimonio(df):
         "OBRESVACIONES": "Observaciones",
         "OBSERVACION": "Observaciones",
         "LIQUIDEZ": "Liquidez",
+        "PORCENTAJE": "Porcentaje",
+        "PORCENTAJE PROPIEDAD": "Porcentaje",
+        "PORCENTAJE DE PROPIEDAD": "Porcentaje",
     }
     for col in df.columns:
         clave = normalizar(col)
@@ -1744,9 +1858,10 @@ def normalizar_columnas_patrimonio(df):
             mapa[col] = equivalencias[clave]
     df = df.rename(columns=mapa)
     columnas = [
-        "Fecha", "Tipo", "Categoría", "Subcategoría", "Descripción", "Entidad",
+        "Fecha", "Tipo", "Tipo de producto", "Disponibilidad de efectivo", "Liquidez",
+        "Categoría", "Subcategoría", "Descripción", "Entidad", "Porcentaje",
         "Valor actual", "Saldo pendiente", "Valor neto", "Fecha compra",
-        "Fecha valoración", "Estado", "Observaciones", "Liquidez",
+        "Fecha valoración", "Estado", "Observaciones",
     ]
     for col in columnas:
         if col not in df.columns:
@@ -1754,13 +1869,116 @@ def normalizar_columnas_patrimonio(df):
     return df[columnas]
 
 
+def leer_deudas_excel(file):
+    """Lee pasivos desde la hoja Pasivos o, por compatibilidad, Deudas."""
+    columnas = [
+        "Nombre", "Tipo", "Deuda inicial", "Interés", "Saldo",
+        "Avance Excel", "Inicio del crédito", "Pago mensual", "Hoja origen",
+    ]
+    raw = None
+    hoja_origen = None
+    for hoja in ("Pasivos", "Deudas"):
+        try:
+            raw = pd.read_excel(file, sheet_name=hoja)
+            hoja_origen = hoja
+            break
+        except Exception:
+            continue
+
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=columnas)
+
+    equivalencias = {
+        "ENTIDAD": "Nombre",
+        "NOMBRE": "Nombre",
+        "ACREEDOR": "Nombre",
+        "TIPO": "Tipo",
+        "TIPO DE DEUDA": "Tipo",
+        "DEUDA": "Deuda inicial",
+        "DEUDA INICIAL": "Deuda inicial",
+        "VALOR INICIAL": "Deuda inicial",
+        "INTERES": "Interés",
+        "INTERES NM": "Interés",
+        "INTERES MENSUAL": "Interés",
+        "SALDO": "Saldo",
+        "SALDO PENDIENTE": "Saldo",
+        "AVANCE": "Avance Excel",
+        "AVANCE EXCEL": "Avance Excel",
+        "INICIO DEL CREDITO": "Inicio del crédito",
+        "FECHA INICIO": "Inicio del crédito",
+        "PAGO MENSUAL": "Pago mensual",
+        "CUOTA MENSUAL": "Pago mensual",
+    }
+    mapa = {
+        col: equivalencias[normalizar(col)]
+        for col in raw.columns
+        if normalizar(col) in equivalencias
+    }
+    deudas = raw.rename(columns=mapa).copy()
+
+    for col in columnas[:-1]:
+        if col not in deudas.columns:
+            deudas[col] = pd.NA
+    deudas["Hoja origen"] = hoja_origen
+    deudas["Nombre"] = deudas["Nombre"].astype("string").str.strip()
+    deudas = deudas[
+        deudas["Nombre"].notna()
+        & deudas["Nombre"].ne("")
+        & deudas["Nombre"].str.lower().ne("nan")
+    ].copy()
+
+    for col in ["Deuda inicial", "Interés", "Saldo", "Avance Excel", "Pago mensual"]:
+        deudas[col] = pd.to_numeric(deudas[col], errors="coerce")
+    deudas["Deuda inicial"] = deudas["Deuda inicial"].fillna(deudas["Saldo"]).fillna(0).clip(lower=0)
+    deudas["Saldo"] = deudas["Saldo"].fillna(deudas["Deuda inicial"]).fillna(0).clip(lower=0)
+    deudas["Interés"] = deudas["Interés"].fillna(0).clip(lower=0)
+    deudas["Avance Excel"] = deudas["Avance Excel"].fillna(0)
+    deudas["Pago mensual"] = deudas["Pago mensual"].fillna(0).clip(lower=0)
+    deudas["Inicio del crédito"] = pd.to_datetime(deudas["Inicio del crédito"], errors="coerce")
+    deudas["Tipo"] = deudas["Tipo"].fillna("Deuda").astype(str).str.strip().str.title()
+    return deudas[columnas].reset_index(drop=True)
+
+
+def convertir_deudas_a_patrimonio(deudas):
+    """Convierte los saldos vigentes de Pasivos/Deudas al formato patrimonial."""
+    columnas = [
+        "Fecha", "Tipo", "Tipo de producto", "Disponibilidad de efectivo", "Liquidez",
+        "Categoría", "Subcategoría", "Descripción", "Entidad", "Porcentaje",
+        "Valor actual", "Saldo pendiente", "Valor neto", "Fecha compra",
+        "Fecha valoración", "Estado", "Observaciones",
+    ]
+    if deudas is None or deudas.empty:
+        return pd.DataFrame(columns=columnas)
+
+    pasivos = pd.DataFrame(index=deudas.index)
+    pasivos["Fecha"] = deudas["Inicio del crédito"]
+    pasivos["Tipo"] = "Pasivo"
+    pasivos["Tipo de producto"] = deudas["Tipo"].fillna("Deuda")
+    pasivos["Disponibilidad de efectivo"] = "No aplica"
+    pasivos["Liquidez"] = "No aplica"
+    pasivos["Categoría"] = "Deudas"
+    pasivos["Subcategoría"] = deudas["Tipo"].fillna("Deuda")
+    pasivos["Descripción"] = deudas["Nombre"]
+    pasivos["Entidad"] = deudas["Nombre"]
+    pasivos["Porcentaje"] = 1.0
+    pasivos["Valor actual"] = deudas["Saldo"]
+    pasivos["Saldo pendiente"] = deudas["Saldo"]
+    pasivos["Valor neto"] = -deudas["Saldo"].abs()
+    pasivos["Fecha compra"] = deudas["Inicio del crédito"]
+    pasivos["Fecha valoración"] = pd.NaT
+    pasivos["Estado"] = deudas["Saldo"].gt(0).map({True: "Activo", False: "Pagado"})
+    pasivos["Observaciones"] = "Origen: hoja " + deudas["Hoja origen"].fillna("Pasivos").astype(str)
+    return pasivos[columnas].reset_index(drop=True)
+
+
 @st.cache_data
 def leer_patrimonio_excel(file):
     """Lee la hoja Patrimonio si existe y prepara datos para gráficos ejecutivos."""
     columnas = [
-        "Fecha", "Tipo", "Categoría", "Subcategoría", "Descripción", "Entidad",
+        "Fecha", "Tipo", "Tipo de producto", "Disponibilidad de efectivo", "Liquidez",
+        "Categoría", "Subcategoría", "Descripción", "Entidad", "Porcentaje",
         "Valor actual", "Saldo pendiente", "Valor neto", "Fecha compra",
-        "Fecha valoración", "Estado", "Observaciones", "Liquidez",
+        "Fecha valoración", "Estado", "Observaciones",
     ]
     try:
         raw = pd.read_excel(file, sheet_name="Patrimonio")
@@ -1770,7 +1988,7 @@ def leer_patrimonio_excel(file):
     patrimonio = normalizar_columnas_patrimonio(raw)
     patrimonio = patrimonio.dropna(how="all")
     if patrimonio.empty:
-        return patrimonio
+        patrimonio = pd.DataFrame(columns=columnas)
 
     patrimonio["Tipo"] = patrimonio["Tipo"].fillna("Activo").astype(str).str.strip().str.title()
     patrimonio["Categoría"] = patrimonio["Categoría"].fillna("Sin categoría").astype(str).str.strip()
@@ -1779,24 +1997,375 @@ def leer_patrimonio_excel(file):
     patrimonio["Entidad"] = patrimonio["Entidad"].fillna("Sin entidad").astype(str).str.strip()
     patrimonio["Estado"] = patrimonio["Estado"].fillna("Activo").astype(str).str.strip().str.title()
     patrimonio["Liquidez"] = patrimonio["Liquidez"].fillna("Sin clasificar").astype(str).str.strip().str.title()
+    patrimonio["Tipo de producto"] = patrimonio["Tipo de producto"].fillna("Sin clasificar").astype(str).str.strip().str.title()
+    patrimonio["Disponibilidad de efectivo"] = patrimonio["Disponibilidad de efectivo"].fillna("Sin clasificar").astype(str).str.strip().str.title()
 
     for col in ["Valor actual", "Saldo pendiente", "Valor neto"]:
         patrimonio[col] = pd.to_numeric(patrimonio[col], errors="coerce").fillna(0)
+
+    patrimonio["Porcentaje"] = pd.to_numeric(patrimonio["Porcentaje"], errors="coerce").fillna(1.0)
+    patrimonio.loc[patrimonio["Porcentaje"] > 1, "Porcentaje"] /= 100.0
+    patrimonio["Porcentaje"] = patrimonio["Porcentaje"].clip(lower=0, upper=1)
 
     patrimonio["Fecha"] = pd.to_datetime(patrimonio["Fecha"], errors="coerce")
     patrimonio["Fecha compra"] = pd.to_datetime(patrimonio["Fecha compra"], errors="coerce")
     patrimonio["Fecha valoración"] = pd.to_datetime(patrimonio["Fecha valoración"], errors="coerce")
 
-    # Si Valor neto no viene diligenciado, se calcula.
+    # Si la fórmula del fondo de emergencia llega sin valor calculado, se reconstruye
+    # desde las consignaciones de la hoja Dale.
+    fondo_mask = patrimonio["Categoría"].map(normalizar).eq("FONDO DE EMERGENCIA")
+    if fondo_mask.any() and patrimonio.loc[fondo_mask, "Valor actual"].eq(0).any():
+        try:
+            dale_aportes = pd.read_excel(file, sheet_name="Dale", usecols="A", header=None)
+            fondo_dale = float(pd.to_numeric(dale_aportes.iloc[:, 0], errors="coerce").fillna(0).sum())
+            patrimonio.loc[fondo_mask & patrimonio["Valor actual"].eq(0), "Valor actual"] = fondo_dale
+        except Exception:
+            pass
+
+    # Si Valor neto no viene diligenciado, se calcula usando el porcentaje de propiedad.
     sin_valor_neto = patrimonio["Valor neto"].eq(0)
     es_activo = patrimonio["Tipo"].map(normalizar).eq("ACTIVO")
     patrimonio.loc[sin_valor_neto & es_activo, "Valor neto"] = (
         patrimonio.loc[sin_valor_neto & es_activo, "Valor actual"]
+        * patrimonio.loc[sin_valor_neto & es_activo, "Porcentaje"]
         - patrimonio.loc[sin_valor_neto & es_activo, "Saldo pendiente"]
     )
-    patrimonio.loc[sin_valor_neto & ~es_activo, "Valor neto"] = -patrimonio.loc[sin_valor_neto & ~es_activo, "Saldo pendiente"]
+    deuda_base = patrimonio["Saldo pendiente"].where(
+        patrimonio["Saldo pendiente"].ne(0),
+        patrimonio["Valor actual"] * patrimonio["Porcentaje"],
+    )
+    patrimonio.loc[sin_valor_neto & ~es_activo, "Valor neto"] = -deuda_base.loc[sin_valor_neto & ~es_activo].abs()
 
-    return patrimonio
+    deudas = leer_deudas_excel(file)
+    pasivos = convertir_deudas_a_patrimonio(deudas)
+    if not pasivos.empty:
+        # Cuando existe una hoja dedicada de pasivos, Patrimonio es la fuente exclusiva
+        # de activos. Esto evita contar dos veces una deuda copiada en ambas hojas.
+        patrimonio = patrimonio[patrimonio["Tipo"].map(normalizar).eq("ACTIVO")].copy()
+        patrimonio = pd.concat([patrimonio, pasivos], ignore_index=True, sort=False)
+
+    return patrimonio[columnas].reset_index(drop=True)
+
+
+def calcular_diagnostico_patrimonial(patrimonio):
+    """Calcula indicadores personales con soporte para hipotecas futuras."""
+    resultado_vacio = {
+        "patrimonio_financiero": 0.0,
+        "activos_liquidos": 0.0,
+        "solvencia": None,
+        "concentracion_inmuebles_pct": 0.0,
+        "valor_inmuebles_bruto": 0.0,
+        "saldo_hipotecas": 0.0,
+        "ltv_pct": None,
+        "pasivos_corrientes": 0.0,
+        "fondo_maniobra": 0.0,
+        "fondo_maniobra_inmediato": 0.0,
+        "estado": "Sin datos",
+        "mensaje": "No hay información suficiente para evaluar la salud patrimonial.",
+    }
+    if patrimonio is None or patrimonio.empty:
+        return resultado_vacio
+
+    df = patrimonio.copy()
+    for col in ["Valor actual", "Valor neto", "Porcentaje"]:
+        if col not in df.columns:
+            df[col] = 0.0 if col != "Porcentaje" else 1.0
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0 if col != "Porcentaje" else 1.0)
+    df.loc[df["Porcentaje"].gt(1), "Porcentaje"] /= 100.0
+    df["Porcentaje"] = df["Porcentaje"].clip(0.0, 1.0)
+
+    tipo_norm = df.get("Tipo", pd.Series("", index=df.index)).map(normalizar)
+    activos_mask = tipo_norm.eq("ACTIVO")
+    pasivos_mask = ~activos_mask
+    activos = df.loc[activos_mask].copy()
+    pasivos = df.loc[pasivos_mask].copy()
+
+    total_activos = float(activos["Valor neto"].clip(lower=0).sum())
+    total_pasivos = abs(float(pasivos["Valor neto"].sum()))
+
+    def texto_normalizado(tabla, columnas):
+        partes = [
+            tabla.get(col, pd.Series("", index=tabla.index)).fillna("").astype(str).map(normalizar)
+            for col in columnas
+        ]
+        if not partes:
+            return pd.Series("", index=tabla.index)
+        texto = partes[0]
+        for parte in partes[1:]:
+            texto = texto + " " + parte
+        return texto.str.strip()
+
+    descripcion_activos = texto_normalizado(
+        activos,
+        ["Tipo de producto", "Categoría", "Subcategoría", "Descripción", "Entidad"],
+    )
+    inmuebles_mask = descripcion_activos.str.contains("INMUEBLE", regex=False)
+    valor_inmuebles_bruto = float(
+        (activos.loc[inmuebles_mask, "Valor actual"] * activos.loc[inmuebles_mask, "Porcentaje"]).sum()
+    )
+
+    palabras_financieras = (
+        "MONETARIO|RENTA FIJA|RENTA VARIABLE|INVERSION|AHORRO|PENSION|CESANTIA|"
+        "FONDO|CUENTA|BANCO|EFECTIVO|CDT|ACCION|BONO|CRIPTO|CODEMA"
+    )
+    financieros_mask = descripcion_activos.str.contains(palabras_financieras, regex=True)
+    financieros_mask &= ~inmuebles_mask
+    patrimonio_financiero = float(activos.loc[financieros_mask, "Valor neto"].clip(lower=0).sum())
+
+    disponibilidad = activos.get(
+        "Disponibilidad de efectivo", pd.Series("", index=activos.index)
+    ).fillna("").astype(str).map(normalizar)
+    liquidez = activos.get("Liquidez", pd.Series("", index=activos.index)).fillna("").astype(str).map(normalizar)
+    disponibilidad_definida = ~disponibilidad.isin(["", "NAN", "SIN CLASIFICAR", "NO APLICA"])
+    disponibilidad_corriente = disponibilidad.str.contains("CORRIENTE", regex=False) & ~disponibilidad.str.contains("NO CORRIENTE", regex=False)
+    liquidez_util = liquidez.str.contains("ALTA|MEDIA|LIQUID|INMEDIATA", regex=True)
+    liquidos_mask = disponibilidad_corriente | (~disponibilidad_definida & liquidez_util)
+    activos_liquidos = float(activos.loc[liquidos_mask, "Valor neto"].clip(lower=0).sum())
+
+    descripcion_liquida = descripcion_activos.loc[liquidos_mask]
+    inmediatos_mask_local = descripcion_liquida.str.contains(
+        "MONETARIO|FONDO DE EMERGENCIA|AHORRO|CUENTA|BANCO|EFECTIVO|CODEMA",
+        regex=True,
+    )
+    activos_inmediatos = float(
+        activos.loc[descripcion_liquida.index[inmediatos_mask_local], "Valor neto"].clip(lower=0).sum()
+    )
+
+    descripcion_pasivos = texto_normalizado(
+        pasivos,
+        ["Tipo de producto", "Categoría", "Subcategoría", "Descripción", "Entidad"],
+    )
+    hipotecas_mask = descripcion_pasivos.str.contains("HIPOTECA", regex=False)
+    saldo_hipotecas = abs(float(pasivos.loc[hipotecas_mask, "Valor neto"].sum()))
+    pasivos_corrientes = abs(float(pasivos.loc[~hipotecas_mask, "Valor neto"].sum()))
+    fondo_maniobra = activos_liquidos - pasivos_corrientes
+    fondo_maniobra_inmediato = activos_inmediatos - pasivos_corrientes
+    ltv_pct = (
+        saldo_hipotecas / valor_inmuebles_bruto * 100
+        if saldo_hipotecas > 0 and valor_inmuebles_bruto > 0
+        else None
+    )
+
+    solvencia = total_activos / total_pasivos if total_pasivos > 0 else None
+    deuda_activos = total_pasivos / total_activos if total_activos > 0 else 0.0
+    if total_pasivos <= 0:
+        estado = "Excelente"
+        mensaje = "No hay pasivos registrados; la posición patrimonial no tiene deuda pendiente."
+    elif fondo_maniobra < 0:
+        estado = "Atención"
+        mensaje = (
+            "El patrimonio total es solvente, pero los activos corrientes no alcanzan a cubrir "
+            "los pasivos corrientes; conviene reforzar la liquidez de corto plazo."
+        )
+    elif solvencia is not None and solvencia >= 2 and deuda_activos <= 0.40:
+        estado = "Sólida"
+        mensaje = "Los activos cubren ampliamente las deudas y el endeudamiento patrimonial es bajo."
+    elif solvencia is not None and solvencia >= 1.2 and deuda_activos <= 0.70:
+        estado = "Estable"
+        mensaje = "La estructura patrimonial es estable, aunque conviene vigilar la deuda y la liquidez."
+    else:
+        estado = "Atención"
+        mensaje = "La relación entre activos y deudas requiere seguimiento y un plan de reducción de pasivos."
+
+    return {
+        "patrimonio_financiero": patrimonio_financiero,
+        "activos_liquidos": activos_liquidos,
+        "solvencia": solvencia,
+        "concentracion_inmuebles_pct": (
+            valor_inmuebles_bruto / total_activos * 100 if total_activos > 0 else 0.0
+        ),
+        "valor_inmuebles_bruto": valor_inmuebles_bruto,
+        "saldo_hipotecas": saldo_hipotecas,
+        "ltv_pct": ltv_pct,
+        "pasivos_corrientes": pasivos_corrientes,
+        "fondo_maniobra": fondo_maniobra,
+        "fondo_maniobra_inmediato": fondo_maniobra_inmediato,
+        "estado": estado,
+        "mensaje": mensaje,
+    }
+
+
+def calcular_carteras_por_objetivo(patrimonio):
+    """Replica la tabla Objetivo/Tiempo de la hoja Situación Patrimonial.
+
+    La distribución se calcula únicamente sobre activos financieros. Los
+    inmuebles, vehículos y otros bienes físicos permanecen en el análisis
+    patrimonial general para no mezclar patrimonio con cartera financiera.
+    """
+    columnas = [
+        "Cartera", "Objetivo", "Tiempo", "Activo",
+        "Renta fija", "Renta variable", "Actual", "Porcentaje", "Componentes",
+    ]
+    base = pd.DataFrame([
+        {
+            "Cartera": "A", "Objetivo": "Ahorro", "Tiempo": "Corto",
+            "Activo": "Monetario", "Renta fija": "Sí", "Renta variable": "No",
+            "Actual": 0.0, "Componentes": [],
+        },
+        {
+            "Cartera": "B", "Objetivo": "Inversión", "Tiempo": "Medio",
+            "Activo": "Renta fija", "Renta fija": "Sí", "Renta variable": "Sí",
+            "Actual": 0.0, "Componentes": [],
+        },
+        {
+            "Cartera": "C", "Objetivo": "Previsión", "Tiempo": "Largo",
+            "Activo": "Renta variable / Criptos", "Renta fija": "No", "Renta variable": "Sí",
+            "Actual": 0.0, "Componentes": [],
+        },
+    ])
+    if patrimonio is None or patrimonio.empty:
+        base["Porcentaje"] = 0.0
+        return base[columnas]
+
+    df = patrimonio.copy()
+    tipo = df.get("Tipo", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    df = df.loc[tipo.eq("ACTIVO")].copy()
+    if df.empty:
+        base["Porcentaje"] = 0.0
+        return base[columnas]
+
+    df["Valor objetivo"] = pd.to_numeric(
+        df.get("Valor neto", pd.Series(0.0, index=df.index)), errors="coerce"
+    ).fillna(0.0).clip(lower=0.0)
+    producto = df.get("Tipo de producto", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    categoria = df.get("Categoría", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    subcategoria = df.get("Subcategoría", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    descripcion = (producto + " " + categoria + " " + subcategoria).str.strip()
+
+    bienes_fisicos = descripcion.str.contains(
+        "INMUEBLE|VEHICULO|TECNOLOG|COMPUTADOR|MUEBLE|MAQUINARIA|JOYAS|ARTE",
+        regex=True,
+    )
+    activos_financieros = descripcion.str.contains(
+        "MONETARIO|RENTA FIJA|RENTA VARIABLE|INVERSION|AHORRO|PENSION|CESANTIA|"
+        "FONDO|CUENTA|BANCO|EFECTIVO|CDT|ACCION|BONO|CRIPTO|CODEMA",
+        regex=True,
+    ) & ~bienes_fisicos
+
+    ahorro = activos_financieros & (
+        categoria.str.contains("FONDO DE EMERGENCIA|AHORRO|CUENTA|BANCO|EFECTIVO|CODEMA", regex=True)
+        | producto.str.contains("MONETARIO", regex=False)
+    )
+    prevision = activos_financieros & ~ahorro & (
+        producto.str.contains("RENTA VARIABLE|CRIPTO", regex=True)
+        | categoria.str.contains("PENSION|CESANTIA|PREVISION", regex=True)
+    )
+    inversion = activos_financieros & ~ahorro & ~prevision
+
+    columnas_nombre = [
+        col for col in ["Elemento", "Descripción", "Subcategoría", "Categoría", "Entidad"]
+        if col in df.columns
+    ]
+    if columnas_nombre:
+        df["Elemento objetivo"] = df[columnas_nombre].fillna("").astype(str).apply(
+            lambda fila: next(
+                (
+                    valor.strip() for valor in fila
+                    if valor.strip() and normalizar(valor) not in {"NAN", "NONE", "NAT", "SIN NOMBRE", "SIN DESCRIPCION"}
+                ),
+                "Sin nombre",
+            ),
+            axis=1,
+        )
+    else:
+        df["Elemento objetivo"] = "Sin nombre"
+
+    def componentes_de(mascara):
+        if not mascara.any():
+            return []
+        detalle = (
+            df.loc[mascara]
+            .groupby("Elemento objetivo", as_index=False)["Valor objetivo"]
+            .sum()
+            .sort_values("Valor objetivo", ascending=False)
+        )
+        return [
+            {"nombre": str(fila["Elemento objetivo"]), "valor": float(fila["Valor objetivo"])}
+            for _, fila in detalle.iterrows()
+        ]
+
+    importes = {
+        "A": float(df.loc[ahorro, "Valor objetivo"].sum()),
+        "B": float(df.loc[inversion, "Valor objetivo"].sum()),
+        "C": float(df.loc[prevision, "Valor objetivo"].sum()),
+    }
+    base["Actual"] = base["Cartera"].map(importes).fillna(0.0)
+    base["Componentes"] = base["Cartera"].map({
+        "A": componentes_de(ahorro),
+        "B": componentes_de(inversion),
+        "C": componentes_de(prevision),
+    })
+    total = float(base["Actual"].sum())
+    base["Porcentaje"] = base["Actual"].div(total).mul(100) if total > 0 else 0.0
+    return base[columnas]
+
+
+def calcular_distribucion_renta_patrimonio(patrimonio):
+    """Separa los activos según produzcan o no algún tipo de renta."""
+    columnas = ["Estado renta", "Valor", "Porcentaje", "Componentes"]
+    if patrimonio is None or patrimonio.empty:
+        return pd.DataFrame(columns=columnas)
+
+    df = patrimonio.copy()
+    tipo = df.get("Tipo", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    df = df.loc[tipo.eq("ACTIVO")].copy()
+    if df.empty:
+        return pd.DataFrame(columns=columnas)
+
+    df["Valor renta"] = pd.to_numeric(
+        df.get("Valor neto", pd.Series(0.0, index=df.index)), errors="coerce"
+    ).fillna(0.0).clip(lower=0.0)
+    producto = df.get("Tipo de producto", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    categoria = df.get("Categoría", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    descripcion = df.get("Descripción", pd.Series("", index=df.index)).fillna("").astype(str).map(normalizar)
+    texto_renta = (producto + " " + categoria + " " + descripcion).str.strip()
+
+    sin_renta = producto.str.contains("SIN RENTA", regex=False)
+    produce_renta = ~sin_renta & texto_renta.str.contains(
+        "RENTA FIJA|RENTA VARIABLE|CON RENTA|ALQUILER|ARREND|INTERES|DIVIDENDO|CUPON|RENDIMIENTO",
+        regex=True,
+    )
+    df["Estado renta"] = produce_renta.map({True: "Produce renta", False: "No produce renta"})
+
+    columnas_nombre = [
+        col for col in ["Elemento", "Descripción", "Subcategoría", "Categoría", "Entidad"]
+        if col in df.columns
+    ]
+    if columnas_nombre:
+        df["Elemento renta"] = df[columnas_nombre].fillna("").astype(str).apply(
+            lambda fila: next(
+                (
+                    valor.strip() for valor in fila
+                    if valor.strip() and normalizar(valor) not in {"NAN", "NONE", "NAT", "SIN NOMBRE", "SIN DESCRIPCION"}
+                ),
+                "Sin nombre",
+            ),
+            axis=1,
+        )
+    else:
+        df["Elemento renta"] = "Sin nombre"
+
+    filas = []
+    total = float(df["Valor renta"].sum())
+    for estado in ["Produce renta", "No produce renta"]:
+        grupo = df.loc[df["Estado renta"].eq(estado)]
+        valor = float(grupo["Valor renta"].sum())
+        detalle = (
+            grupo.groupby("Elemento renta", as_index=False)["Valor renta"]
+            .sum()
+            .sort_values("Valor renta", ascending=False)
+        )
+        componentes = [
+            {"nombre": str(fila["Elemento renta"]), "valor": float(fila["Valor renta"])}
+            for _, fila in detalle.iterrows()
+        ]
+        filas.append({
+            "Estado renta": estado,
+            "Valor": valor,
+            "Porcentaje": valor / total * 100 if total > 0 else 0.0,
+            "Componentes": componentes,
+        })
+    return pd.DataFrame(filas, columns=columnas)
 
 
 def fig_patrimonio_donut(resumen_tipo):
@@ -2212,6 +2781,101 @@ def puntaje_metas(metas):
     avance = float(metas["Avance"].mean())
     pts = min(10, max(0, avance / 10))
     return pts, avance
+
+
+def normalizar_pct_0_100(valor):
+    """Normaliza proporciones 0–1 y porcentajes 0–100 a una escala 0–100."""
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return 0.0
+    if pd.isna(numero):
+        return 0.0
+    if -1.0 <= numero <= 1.0:
+        numero *= 100.0
+    return min(max(numero, 0.0), 100.0)
+
+
+def calcular_componentes_score(
+    gastos_valor,
+    ingresos_valor,
+    presupuesto_valor,
+    activos_valor,
+    pasivos_valor,
+    fondo_valor,
+    gasto_mensual_valor,
+    metas_df,
+    gastos_df,
+):
+    """Fuente única de los seis componentes del score financiero."""
+    pts_pres, ratio_pres = puntaje_presupuesto(gastos_valor, presupuesto_valor)
+    pts_aho, pct_aho = puntaje_ahorro(ingresos_valor - gastos_valor, ingresos_valor)
+    pts_end, pct_end = puntaje_endeudamiento(pasivos_valor, activos_valor)
+    pts_inn, pct_inn, monto_inn, innecesarios_df = puntaje_gastos_innecesarios(gastos_df)
+    pts_eme, _ = puntaje_fondo_emergencia(fondo_valor, gasto_mensual_valor)
+    pts_met, avance_met = puntaje_metas(metas_df)
+
+    ratio_pres = normalizar_pct_0_100(ratio_pres)
+    pct_aho = max(min(float(pct_aho), 100.0), -100.0)
+    pct_end = normalizar_pct_0_100(pct_end)
+    pct_inn = normalizar_pct_0_100(pct_inn)
+    avance_met = normalizar_pct_0_100(avance_met)
+
+    datos = [
+        {"Indicador": "Presupuesto", "Icono": "🎯", "Puntos": float(pts_pres), "Máximo": 25.0,
+         "Puntaje %": normalizar_pct_0_100(float(pts_pres) / 25.0), "Base": f"Ejecución presupuestal: {ratio_pres:.1f}%"},
+        {"Indicador": "Ahorro", "Icono": "💰", "Puntos": float(pts_aho), "Máximo": 20.0,
+         "Puntaje %": normalizar_pct_0_100(float(pts_aho) / 20.0), "Base": f"Capacidad de ahorro: {pct_aho:.1f}%"},
+        {"Indicador": "Endeudamiento", "Icono": "💳", "Puntos": float(pts_end), "Máximo": 20.0,
+         "Puntaje %": normalizar_pct_0_100(float(pts_end) / 20.0), "Base": f"Pasivos / activos: {pct_end:.1f}%"},
+        {"Indicador": "Gastos innecesarios", "Icono": "🛒", "Puntos": float(pts_inn), "Máximo": 10.0,
+         "Puntaje %": normalizar_pct_0_100(float(pts_inn) / 10.0), "Base": f"Gasto marcado: {pct_inn:.1f}%"},
+        {"Indicador": "Fondo emergencia", "Icono": "🛡️", "Puntos": float(pts_eme), "Máximo": 15.0,
+         "Puntaje %": normalizar_pct_0_100(float(pts_eme) / 15.0),
+         "Base": f"Cobertura: {(fondo_valor / gasto_mensual_valor):.1f} meses" if gasto_mensual_valor > 0 else "Sin gasto mensual de referencia"},
+        {"Indicador": "Metas", "Icono": "🏁", "Puntos": float(pts_met), "Máximo": 10.0,
+         "Puntaje %": normalizar_pct_0_100(float(pts_met) / 10.0), "Base": f"Cumplimiento promedio: {avance_met:.1f}%"},
+    ]
+    return datos, {
+        "ratio_presupuesto": ratio_pres,
+        "pct_ahorro": pct_aho,
+        "pct_endeuda": pct_end,
+        "pct_innecesarios": pct_inn,
+        "monto_innecesarios": float(monto_inn),
+        "avance_metas": avance_met,
+        "df_innecesarios": innecesarios_df,
+    }
+
+
+def calcular_score_financiero(
+    *, gastos_valor, ingresos_valor, presupuesto_valor,
+    patrimonio, metas_df, gastos_df, cantidad_periodos,
+):
+    """Calcula el score y devuelve también todas sus bases auditables."""
+    if patrimonio is not None and not patrimonio.empty:
+        activos = float(patrimonio.loc[patrimonio["Tipo"].map(normalizar).eq("ACTIVO"), "Valor neto"].sum())
+        pasivos = abs(float(patrimonio.loc[~patrimonio["Tipo"].map(normalizar).eq("ACTIVO"), "Valor neto"].sum()))
+    else:
+        activos = pasivos = 0.0
+    periodos = max(int(cantidad_periodos or 0), 1)
+    gasto_mensual = float(gastos_valor) / periodos
+    fondo = valor_fondo_emergencia(patrimonio) if patrimonio is not None else 0.0
+    componentes, metricas = calcular_componentes_score(
+        gastos_valor=float(gastos_valor), ingresos_valor=float(ingresos_valor),
+        presupuesto_valor=float(presupuesto_valor), activos_valor=activos,
+        pasivos_valor=pasivos, fondo_valor=fondo,
+        gasto_mensual_valor=gasto_mensual, metas_df=metas_df, gastos_df=gastos_df,
+    )
+    return {
+        "score": round(sum(item["Puntos"] for item in componentes), 1),
+        "componentes": componentes,
+        "metricas": metricas,
+        "activos": activos,
+        "pasivos": pasivos,
+        "fondo": fondo,
+        "gasto_mensual": gasto_mensual,
+        "cantidad_periodos": periodos,
+    }
 
 
 def estado_meta(avance):

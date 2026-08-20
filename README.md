@@ -1,4 +1,4 @@
-# Altium Financiero V13
+# Altium Financiero V14
 
 Dashboard financiero en Streamlit con la pestaña Felicidad reorganizada y la Brújula Altium.
 
@@ -95,6 +95,28 @@ docker push USUARIO_DOCKERHUB/altium-financiero:latest
 ## Datos
 
 La aplicación carga el Excel desde el navegador. El volumen `altium_data` queda preparado para persistencia futura en `/app/data`, aunque la versión actual no necesita almacenar permanentemente el archivo cargado.
+
+## Correcciones de consistencia
+
+- Los flujos mensuales conservan año y mes, evitando mezclar periodos de años diferentes.
+- El presupuesto usa todos los meses del rango seleccionado, incluso cuando un mes no tiene gastos.
+- Los filtros de categoría y subcategoría se aplican también al presupuesto comparado.
+- El PDF preparado se invalida automáticamente cuando cambia el archivo o cualquier filtro.
+- La pestaña Score y el informe PDF comparten exactamente el mismo cálculo de seis componentes.
+
+## Hoja Patrimonio
+
+La aplicación acepta la estructura: `Fecha`, `Clasificación`, `Tipo de producto`,
+`Disponibilidad de efectivo`, `Liquidez`, `Categoría`, `Subcategoría`, `Descripción`,
+`Entidad`, `Porcentaje`, `Valor actual` y `Observaciones`.
+
+El valor neto se calcula automáticamente aplicando el porcentaje de propiedad. Los activos
+se registran en positivo y los pasivos en negativo, incluso cuando no existe una columna
+separada de saldo pendiente.
+
+Si el libro contiene una hoja `Pasivos` —o `Deudas` en versiones anteriores—, sus saldos
+se incorporan automáticamente al patrimonio como valores negativos. En ese caso, la hoja
+`Patrimonio` se usa exclusivamente como fuente de activos para evitar duplicaciones.
 
 ## Seguridad
 
