@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import unicodedata
+import json
+from urllib.request import Request, urlopen
 
 st.set_page_config(page_title="Estado Financiero", layout="wide", page_icon="📊")
 
@@ -1851,6 +1853,10 @@ def normalizar_columnas_patrimonio(df):
         "PORCENTAJE": "Porcentaje",
         "PORCENTAJE PROPIEDAD": "Porcentaje",
         "PORCENTAJE DE PROPIEDAD": "Porcentaje",
+        "MONEDA": "Moneda",
+        "DIVISA": "Moneda",
+        "TASA A COP": "Tasa a COP",
+        "TASA DE CAMBIO": "Tasa a COP",
     }
     for col in df.columns:
         clave = normalizar(col)
@@ -1861,12 +1867,63 @@ def normalizar_columnas_patrimonio(df):
         "Fecha", "Tipo", "Tipo de producto", "Disponibilidad de efectivo", "Liquidez",
         "Categoría", "Subcategoría", "Descripción", "Entidad", "Porcentaje",
         "Valor actual", "Saldo pendiente", "Valor neto", "Fecha compra",
-        "Fecha valoración", "Estado", "Observaciones",
+        "Fecha valoración", "Estado", "Observaciones", "Moneda", "Tasa a COP",
     ]
     for col in columnas:
         if col not in df.columns:
             df[col] = pd.NA
     return df[columnas]
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def obtener_trm_colombia():
+    """Consulta la TRM USD/COP oficial publicada por la Superfinanciera."""
+    endpoint = (
+        "https://www.datos.gov.co/resource/32sa-8pi3.json"
+        "?%24select=valor%2Cunidad%2Cvigenciadesde%2Cvigenciahasta"
+        "&%24order=vigenciadesde%20DESC&%24limit=1"
+    )
+    resultado = {
+        "valor": None,
+        "unidad": "COP por USD",
+        "vigencia_desde": None,
+        "vigencia_hasta": None,
+        "fuente": "Superintendencia Financiera de Colombia",
+        "url": "https://www.datos.gov.co/resource/32sa-8pi3",
+        "disponible": False,
+        "mensaje": "No fue posible consultar la TRM en este momento.",
+    }
+    try:
+        solicitud = Request(endpoint, headers={"User-Agent": "Altium-Financiero-V14/1.0"})
+        with urlopen(solicitud, timeout=7) as respuesta:
+            datos = json.loads(respuesta.read().decode("utf-8"))
+        if datos:
+            valor = float(datos[0].get("valor", 0))
+            if valor > 0:
+                resultado.update({
+                    "valor": valor,
+                    "unidad": datos[0].get("unidad") or "COP por USD",
+                    "vigencia_desde": datos[0].get("vigenciadesde"),
+                    "vigencia_hasta": datos[0].get("vigenciahasta"),
+                    "disponible": True,
+                    "mensaje": "TRM oficial consultada correctamente.",
+                })
+    except Exception:
+        pass
+    return resultado
+
+
+def normalizar_moneda_patrimonio(valor):
+    """Convierte nombres habituales de divisas a códigos ISO legibles."""
+    moneda = normalizar(valor)
+    equivalencias = {
+        "": "COP", "NAN": "COP", "NONE": "COP", "PESO": "COP", "PESOS": "COP",
+        "PESO COLOMBIANO": "COP", "PESOS COLOMBIANOS": "COP", "COP": "COP",
+        "DOLAR": "USD", "DOLARES": "USD", "DOLAR AMERICANO": "USD", "USD": "USD",
+        "EURO": "EUR", "EUROS": "EUR", "EUR": "EUR",
+        "LIBRA": "GBP", "LIBRAS": "GBP", "GBP": "GBP",
+    }
+    return equivalencias.get(moneda, moneda[:12] or "COP")
 
 
 def leer_deudas_excel(file):
@@ -1945,7 +2002,8 @@ def convertir_deudas_a_patrimonio(deudas):
         "Fecha", "Tipo", "Tipo de producto", "Disponibilidad de efectivo", "Liquidez",
         "Categoría", "Subcategoría", "Descripción", "Entidad", "Porcentaje",
         "Valor actual", "Saldo pendiente", "Valor neto", "Fecha compra",
-        "Fecha valoración", "Estado", "Observaciones",
+        "Fecha valoración", "Estado", "Observaciones", "Moneda", "Valor original",
+        "Tasa a COP", "Conversión disponible",
     ]
     if deudas is None or deudas.empty:
         return pd.DataFrame(columns=columnas)
@@ -1968,17 +2026,22 @@ def convertir_deudas_a_patrimonio(deudas):
     pasivos["Fecha valoración"] = pd.NaT
     pasivos["Estado"] = deudas["Saldo"].gt(0).map({True: "Activo", False: "Pagado"})
     pasivos["Observaciones"] = "Origen: hoja " + deudas["Hoja origen"].fillna("Pasivos").astype(str)
+    pasivos["Moneda"] = "COP"
+    pasivos["Valor original"] = deudas["Saldo"]
+    pasivos["Tasa a COP"] = 1.0
+    pasivos["Conversión disponible"] = True
     return pasivos[columnas].reset_index(drop=True)
 
 
 @st.cache_data
-def leer_patrimonio_excel(file):
+def leer_patrimonio_excel(file, trm_usd_cop=None):
     """Lee la hoja Patrimonio si existe y prepara datos para gráficos ejecutivos."""
     columnas = [
         "Fecha", "Tipo", "Tipo de producto", "Disponibilidad de efectivo", "Liquidez",
         "Categoría", "Subcategoría", "Descripción", "Entidad", "Porcentaje",
         "Valor actual", "Saldo pendiente", "Valor neto", "Fecha compra",
-        "Fecha valoración", "Estado", "Observaciones",
+        "Fecha valoración", "Estado", "Observaciones", "Moneda", "Valor original",
+        "Tasa a COP", "Conversión disponible",
     ]
     try:
         raw = pd.read_excel(file, sheet_name="Patrimonio")
@@ -2021,6 +2084,22 @@ def leer_patrimonio_excel(file):
             patrimonio.loc[fondo_mask & patrimonio["Valor actual"].eq(0), "Valor actual"] = fondo_dale
         except Exception:
             pass
+
+    # Conserva el saldo escrito en la moneda original y convierte a COP para que
+    # todas las tarjetas y diagnósticos trabajen sobre una unidad comparable.
+    patrimonio["Moneda"] = patrimonio["Moneda"].map(normalizar_moneda_patrimonio)
+    patrimonio["Valor original"] = patrimonio["Valor actual"]
+    if trm_usd_cop is None:
+        trm_usd_cop = obtener_trm_colombia().get("valor")
+    trm_usd_cop = pd.to_numeric(trm_usd_cop, errors="coerce")
+    tasas = pd.to_numeric(patrimonio["Tasa a COP"], errors="coerce")
+    tasas.loc[patrimonio["Moneda"].eq("COP")] = 1.0
+    if pd.notna(trm_usd_cop) and float(trm_usd_cop) > 0:
+        tasas.loc[patrimonio["Moneda"].eq("USD")] = float(trm_usd_cop)
+    patrimonio["Tasa a COP"] = tasas
+    patrimonio["Conversión disponible"] = patrimonio["Tasa a COP"].notna()
+    for col in ["Valor actual", "Saldo pendiente", "Valor neto"]:
+        patrimonio[col] = (patrimonio[col] * patrimonio["Tasa a COP"]).fillna(0.0)
 
     # Si Valor neto no viene diligenciado, se calcula usando el porcentaje de propiedad.
     sin_valor_neto = patrimonio["Valor neto"].eq(0)
@@ -3313,7 +3392,7 @@ def convertir_trabajos_a_ingresos(trabajos):
 
 
 @st.cache_data
-def cargar_excel(file):
+def cargar_excel(file, trm_usd_cop=None):
     """Carga el Excel de Altium de forma flexible.
 
     Esta versión acepta la Transaccional con gastos en A:H y el bloque de trabajos/ingresos en K:Q.
@@ -3393,7 +3472,7 @@ def cargar_excel(file):
     presupuesto_cat, presupuesto_sub = parse_presupuesto_datos(file)
     presupuesto_mensual_general = leer_presupuesto_mensual_general(file)
     historico_presupuesto = parse_historico_presupuesto(file)
-    patrimonio = leer_patrimonio_excel(file)
+    patrimonio = leer_patrimonio_excel(file, trm_usd_cop=trm_usd_cop)
     metas = leer_metas_excel(file)
     personales = leer_datos_personales(file)
 

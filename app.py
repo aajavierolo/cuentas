@@ -42,7 +42,11 @@ def cargar_hoja_deudas(file):
 
 if archivo:
 
-    gastos, ingresos, presupuesto_cat_base, presupuesto_sub_base, presupuesto_mensual_base, patrimonio, metas, personales, felicidad_trabajos, historico_presupuesto = cargar_excel(archivo)
+    trm_colombia = obtener_trm_colombia()
+    gastos, ingresos, presupuesto_cat_base, presupuesto_sub_base, presupuesto_mensual_base, patrimonio, metas, personales, felicidad_trabajos, historico_presupuesto = cargar_excel(
+        archivo,
+        trm_usd_cop=trm_colombia.get("valor"),
+    )
 
     # ============================================================
     # CORRECCIÓN SEGURA DE LOS MESES DE INGRESOS
@@ -6971,7 +6975,7 @@ if archivo:
         plantilla_patrimonio = pd.DataFrame(columns=[
             "Fecha", "Clasificación", "Tipo de producto", "Disponibilidad de efectivo",
             "Liquidez", "Categoría", "Subcategoría", "Descripción", "Entidad",
-            "Porcentaje", "Valor actual", "Observaciones",
+            "Porcentaje", "Valor actual", "Moneda", "Tasa a COP", "Observaciones",
         ])
 
         if patrimonio.empty:
@@ -6983,19 +6987,19 @@ if archivo:
                     "Fecha": "06/07/2026", "Clasificación": "Activo", "Tipo de producto": "Sin renta",
                     "Disponibilidad de efectivo": "No corriente", "Liquidez": "Baja", "Categoría": "Vivienda",
                     "Subcategoría": "Casa", "Descripción": "Casa principal", "Entidad": "Propia",
-                    "Porcentaje": 0.60, "Valor actual": 420000000, "Observaciones": "Avalúo comercial 2026",
+                    "Porcentaje": 0.60, "Valor actual": 420000000, "Moneda": "COP", "Observaciones": "Avalúo comercial 2026",
                 },
                 {
                     "Fecha": "06/07/2026", "Clasificación": "Activo", "Tipo de producto": "Renta fija",
                     "Disponibilidad de efectivo": "Corriente", "Liquidez": "Alta", "Categoría": "Bancos",
                     "Subcategoría": "Cuenta de ahorros", "Descripción": "Cuenta principal", "Entidad": "Bancolombia",
-                    "Porcentaje": 1.00, "Valor actual": 8500000, "Observaciones": "Saldo actualizado",
+                    "Porcentaje": 1.00, "Valor actual": 8500000, "Moneda": "COP", "Observaciones": "Saldo actualizado",
                 },
                 {
                     "Fecha": "06/07/2026", "Clasificación": "Pasivo", "Tipo de producto": "Préstamo",
                     "Disponibilidad de efectivo": "Corriente", "Liquidez": "No aplica", "Categoría": "Crédito",
                     "Subcategoría": "Tarjeta", "Descripción": "Tarjeta principal", "Entidad": "BBVA",
-                    "Porcentaje": 1.00, "Valor actual": 3250000, "Observaciones": "Corte mensual",
+                    "Porcentaje": 1.00, "Valor actual": 3250000, "Moneda": "COP", "Observaciones": "Corte mensual",
                 },
             ])
             st.dataframe(ejemplo_patrimonio, use_container_width=True, hide_index=True)
@@ -7014,6 +7018,35 @@ if archivo:
             m3.metric("Total pasivos", f"${total_pasivos:,.0f}")
             m4.metric("Patrimonio neto", f"${patrimonio_neto:,.0f}")
             m5.metric("Endeudamiento", f"{deuda_activos_pct:.1f}%")
+
+            st.markdown("### 💱 Tasa Representativa del Mercado")
+            if trm_colombia.get("disponible") and trm_colombia.get("valor"):
+                fecha_trm = pd.to_datetime(
+                    trm_colombia.get("vigencia_desde"), errors="coerce"
+                )
+                vigencia_trm = (
+                    fecha_trm.strftime("%d/%m/%Y") if pd.notna(fecha_trm) else "Vigencia oficial"
+                )
+                trm1, trm2 = st.columns([1, 2])
+                trm1.metric(
+                    "TRM oficial · 1 USD",
+                    f"${float(trm_colombia['valor']):,.2f} COP",
+                )
+                with trm2:
+                    st.info(
+                        f"📅 **Vigencia:** {vigencia_trm}  \n"
+                        "Los activos registrados en USD se convierten automáticamente a pesos "
+                        "para los totales y diagnósticos patrimoniales."
+                    )
+                st.caption(
+                    "Fuente oficial: [Superintendencia Financiera de Colombia · Datos Abiertos]"
+                    "(https://www.datos.gov.co/resource/32sa-8pi3)"
+                )
+            else:
+                st.warning(
+                    "⚠️ No fue posible consultar la TRM oficial. Los valores en USD se conservan "
+                    "en su moneda original, pero se excluyen temporalmente de los totales expresados en COP."
+                )
 
             # ======================================================
             # ANÁLISIS EJECUTIVO DE PATRIMONIO V9.17
@@ -7468,7 +7501,7 @@ if archivo:
             qp5.metric("👯 Posibles duplicados", duplicados_pat)
 
             with st.expander("🔎 Ver tabla patrimonial enriquecida"):
-                columnas_tabla_pat = [c for c in ["Elemento", "Clase", "Categoría", "Subcategoría", "Entidad", "Valor actual", "Saldo pendiente", "Valor neto", "Nivel liquidez", "Fecha valoración", "Estado"] if c in patrimonio_v917.columns]
+                columnas_tabla_pat = [c for c in ["Elemento", "Clase", "Categoría", "Subcategoría", "Entidad", "Moneda", "Valor original", "Tasa a COP", "Valor actual", "Saldo pendiente", "Valor neto", "Nivel liquidez", "Fecha valoración", "Estado"] if c in patrimonio_v917.columns]
                 st.dataframe(patrimonio_v917[columnas_tabla_pat], use_container_width=True, hide_index=True)
 
             # ======================================================
@@ -7995,6 +8028,139 @@ if archivo:
                 st.plotly_chart(fig_patrimonio_liquidez(patrimonio), use_container_width=True)
             with col4:
                 st.plotly_chart(fig_patrimonio_concentracion_categoria(patrimonio), use_container_width=True)
+
+            st.markdown("### 🌎 Patrimonio por moneda")
+            st.caption(
+                "Muestra cuánto tienes en cada moneda original. La escala logarítmica permite ver juntas "
+                "cantidades de tamaños muy distintos; compara los importes leyendo la unidad indicada en cada barra."
+            )
+            activos_monedas = patrimonio.loc[
+                patrimonio["Tipo"].map(normalizar).eq("ACTIVO")
+            ].copy()
+            if activos_monedas.empty:
+                st.info("No hay activos para construir la distribución por moneda.")
+            else:
+                activos_monedas["Moneda"] = activos_monedas.get(
+                    "Moneda", pd.Series("COP", index=activos_monedas.index)
+                ).fillna("COP").astype(str).str.upper().str.strip()
+                activos_monedas["Valor original"] = pd.to_numeric(
+                    activos_monedas.get("Valor original", activos_monedas["Valor actual"]),
+                    errors="coerce",
+                ).fillna(0.0)
+                activos_monedas["Porcentaje"] = pd.to_numeric(
+                    activos_monedas.get("Porcentaje", 1.0), errors="coerce"
+                ).fillna(1.0)
+                activos_monedas["Saldo original propio"] = (
+                    activos_monedas["Valor original"] * activos_monedas["Porcentaje"]
+                )
+                activos_monedas["Equivalente COP"] = pd.to_numeric(
+                    activos_monedas["Valor neto"], errors="coerce"
+                ).fillna(0.0).clip(lower=0.0)
+                activos_monedas["Tasa a COP"] = pd.to_numeric(
+                    activos_monedas.get("Tasa a COP", pd.NA), errors="coerce"
+                )
+                resumen_monedas = (
+                    activos_monedas.groupby("Moneda", as_index=False)
+                    .agg(
+                        **{
+                            "Saldo original": ("Saldo original propio", "sum"),
+                            "Equivalente COP": ("Equivalente COP", "sum"),
+                            "Tasa a COP": ("Tasa a COP", "max"),
+                            "Activos": ("Descripción", "count"),
+                        }
+                    )
+                    .sort_values("Equivalente COP", ascending=True)
+                )
+
+                simbolos_moneda = {"COP": "$", "USD": "US$", "EUR": "€", "GBP": "£"}
+                resumen_monedas["Saldo mostrado"] = resumen_monedas.apply(
+                    lambda fila: (
+                        f"{simbolos_moneda.get(fila['Moneda'], '')}{float(fila['Saldo original']):,.2f} "
+                        f"{fila['Moneda']}"
+                    ),
+                    axis=1,
+                )
+                resumen_monedas["Conversión"] = resumen_monedas["Tasa a COP"].apply(
+                    lambda tasa: f"1 = ${float(tasa):,.2f} COP" if pd.notna(tasa) else "Sin tasa a COP"
+                )
+                resumen_monedas["Equivalente mostrado"] = resumen_monedas.apply(
+                    lambda fila: (
+                        f"${float(fila['Equivalente COP']):,.0f} COP"
+                        if pd.notna(fila["Tasa a COP"]) else "Pendiente de tasa a COP"
+                    ),
+                    axis=1,
+                )
+                monedas_grafico = resumen_monedas[
+                    resumen_monedas["Saldo original"].gt(0)
+                ].copy()
+
+                if not monedas_grafico.empty:
+                    fig_monedas_pat = go.Figure(go.Bar(
+                        x=monedas_grafico["Saldo original"],
+                        y=monedas_grafico["Moneda"],
+                        orientation="h",
+                        text=monedas_grafico["Saldo mostrado"],
+                        textposition="outside",
+                        cliponaxis=False,
+                        marker=dict(
+                            color=[
+                                ["#FBBF24", "#22D3EE", "#A78BFA", "#22C55E", "#F472B6", "#F97316"][i % 6]
+                                for i in range(len(monedas_grafico))
+                            ],
+                            line=dict(color="#020617", width=1.5),
+                        ),
+                        customdata=monedas_grafico[[
+                            "Saldo mostrado", "Equivalente mostrado", "Conversión", "Activos"
+                        ]],
+                        hovertemplate=(
+                            "<b>💱 %{y}</b><br>"
+                            "Saldo original: %{customdata[0]}<br>"
+                            "Equivalente: %{customdata[1]}<br>"
+                            "Tasa aplicada: %{customdata[2]}<br>"
+                            "Activos incluidos: %{customdata[3]}<extra></extra>"
+                        ),
+                    ))
+                    fig_monedas_pat.update_layout(
+                        template="plotly_dark",
+                        height=max(360, 95 * len(monedas_grafico)),
+                        paper_bgcolor="#000000",
+                        plot_bgcolor="#000000",
+                        title="Activos por moneda · saldos originales",
+                        xaxis=dict(
+                            title="Monto en la moneda original (escala logarítmica)",
+                            type="log",
+                            tickformat=",.0f",
+                            gridcolor="rgba(148,163,184,0.14)",
+                        ),
+                        yaxis=dict(title="Moneda", automargin=True),
+                        margin=dict(t=65, b=65, l=65, r=180),
+                        showlegend=False,
+                        hoverlabel=dict(bgcolor="#0F172A", font=dict(color="#F8FAFC")),
+                    )
+                    st.plotly_chart(
+                        fig_monedas_pat,
+                        use_container_width=True,
+                        key="patrimonio_por_moneda_v1",
+                    )
+
+                monedas_sin_tasa = resumen_monedas[
+                    resumen_monedas["Tasa a COP"].isna()
+                ]["Moneda"].tolist()
+                if monedas_sin_tasa:
+                    st.warning(
+                        "Estas monedas aparecen en el resumen, pero necesitan una tasa para convertirlas a COP: "
+                        + ", ".join(monedas_sin_tasa)
+                        + ". Puedes agregar la columna 'Tasa a COP' en la hoja Patrimonio."
+                    )
+
+                with st.expander("Ver saldos originales por moneda"):
+                    tabla_monedas = resumen_monedas[[
+                        "Moneda", "Saldo mostrado", "Equivalente COP", "Conversión", "Activos"
+                    ]].copy()
+                    tabla_monedas["Equivalente COP"] = tabla_monedas["Equivalente COP"].map(
+                        lambda valor: f"${valor:,.0f}"
+                    )
+                    st.dataframe(tabla_monedas, use_container_width=True, hide_index=True)
 
             st.markdown("#### Detalle de patrimonio")
             st.dataframe(
