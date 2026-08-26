@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ==============================================
-echo   ALTIUM FINANCIERO V13 - INICIO DOCKER
+echo   ALTIUM FINANCIERO V16 - INICIO DOCKER
 echo ==============================================
 
 docker info >nul 2>&1

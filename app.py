@@ -12,7 +12,7 @@ encabezado_principal = st.empty()
 with encabezado_principal.container():
     titulo_col, boton_col = st.columns([5.2, 1.8])
     with titulo_col:
-        st.markdown('<p class="hero-title">Altium Financiero V14</p>', unsafe_allow_html=True)
+        st.markdown('<p class="hero-title">Altium Financiero V16</p>', unsafe_allow_html=True)
     with boton_col:
         st.button(
             "📄 Descargar informe PDF",
@@ -411,7 +411,7 @@ if archivo:
     with encabezado_principal.container():
         titulo_col, boton_col = st.columns([5.2, 1.8])
         with titulo_col:
-            st.markdown('<p class="hero-title">Altium Financiero V14</p>', unsafe_allow_html=True)
+            st.markdown('<p class="hero-title">Altium Financiero V16</p>', unsafe_allow_html=True)
         with boton_col:
             generar_pdf_click = st.button(
                 "📄 Preparar informe PDF",
@@ -439,6 +439,7 @@ if archivo:
                     metas=metas,
                     felicidad=felicidad_trabajos_filtrados,
                     presupuesto_periodo=float(presupuesto_mensual_general or 0),
+                    presupuesto_categoria=presupuesto_cat,
                     score_financiero=score_actual["score"],
                     componentes_score=score_actual["componentes"],
                 )
@@ -640,16 +641,33 @@ if archivo:
         else:
             estado_proyeccion = "Completa propuesto o los valores mensuales en Historico_presupuesto para calcular la meta anual."
 
-        def tarjeta_kpi(titulo, valor, subtitulo="", color="#38BDF8", icono="📊"):
+        st.markdown(
+            """
+            <style>
+            @keyframes alerta-ahorro-negativo {
+                0%, 100% { box-shadow: 0 0 10px rgba(255, 23, 68, 0.35); }
+                50% { box-shadow: 0 0 30px rgba(255, 23, 68, 0.95); }
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        def tarjeta_kpi(titulo, valor, subtitulo="", color="#38BDF8", icono="📊", alerta=False):
+            animacion_alerta = "animation: alerta-ahorro-negativo 1.15s ease-in-out infinite;" if alerta else ""
+            grosor_borde = "2px"
             st.markdown(
                 f"""
                 <div style="
                     background: linear-gradient(135deg, rgba(15,23,42,0.98), rgba(2,6,23,0.98));
-                    border: 1px solid {color};
+                    border: {grosor_borde} solid {color};
+                    outline: 1px solid {color};
+                    outline-offset: -1px;
                     border-radius: 18px;
                     padding: 18px 18px 14px 18px;
                     min-height: 132px;
-                    box-shadow: 0 12px 30px rgba(0,0,0,0.42);
+                    box-shadow: 0 0 0 1px {color}, 0 12px 30px rgba(0,0,0,0.42);
+                    {animacion_alerta}
                 ">
                     <div style="display:flex; align-items:center; gap:10px; color:#cbd5e1; font-weight:700; font-size:0.92rem;">
                         <span style="font-size:1.65rem;">{icono}</span>
@@ -670,9 +688,25 @@ if archivo:
 
         k1, k2, k3, k4 = st.columns(4)
         with k1:
-            tarjeta_kpi("Ahorro mensual", f"${ahorro_mensual:,.0f}", "Promedio de los meses filtrados", COLOR_BALANCE, "🐷")
+            ahorro_mensual_negativo = ahorro_mensual < 0
+            tarjeta_kpi(
+                "Ahorro mensual",
+                f"${ahorro_mensual:,.0f}",
+                "Déficit promedio: los gastos superan los ingresos." if ahorro_mensual_negativo else "Promedio de los meses filtrados",
+                "#FF1744" if ahorro_mensual_negativo else COLOR_BALANCE,
+                "🐷",
+                alerta=ahorro_mensual_negativo,
+            )
         with k2:
-            tarjeta_kpi("Ahorro anual", f"${ahorro_anual_proyectado:,.0f}", "Proyección con el ahorro mensual", COLOR_INGRESOS, "📈")
+            ahorro_anual_negativo = ahorro_anual_proyectado < 0
+            tarjeta_kpi(
+                "Ahorro anual",
+                f"${ahorro_anual_proyectado:,.0f}",
+                "Proyección anual deficitaria." if ahorro_anual_negativo else "Proyección con el ahorro mensual",
+                "#FF1744" if ahorro_anual_negativo else COLOR_INGRESOS,
+                "📈",
+                alerta=ahorro_anual_negativo,
+            )
         with k3:
             tarjeta_kpi(
                 "Recomendado para invertir",
@@ -694,7 +728,15 @@ if archivo:
 
         k5, k6, k7, k8 = st.columns(4)
         with k5:
-            tarjeta_kpi("Capacidad de ahorro", f"{capacidad_ahorro:.1f}%", "Entre más alto, mejor margen", "#2DD4BF", "⚡")
+            capacidad_ahorro_negativa = capacidad_ahorro < 0
+            tarjeta_kpi(
+                "Capacidad de ahorro",
+                f"{capacidad_ahorro:.1f}%",
+                "Los gastos superan los ingresos." if capacidad_ahorro_negativa else "Entre más alto, mejor margen",
+                "#FF1744" if capacidad_ahorro_negativa else "#2DD4BF",
+                "⚡",
+                alerta=capacidad_ahorro_negativa,
+            )
         with k6:
             tarjeta_kpi("Deudas / ingresos", f"{pct_ingresos_deuda:.1f}%", f"Pagos detectados: ${pagos_deuda:,.0f}", "#FBBF24", "💳")
         with k7:
@@ -5971,8 +6013,9 @@ if archivo:
                     if not resumen_eff.empty:
                         st.markdown("### ⏱️ Eficiencia de las fuentes laborales")
                         fig_eff = px.scatter(
-                            resumen_eff, x="Horas", y="Ingreso", size="Valor por hora", color="Valor por hora",
-                            text=fuente_col_eff, color_continuous_scale=["#00B7FF", "#00FF88", "#FFD600"],
+                            resumen_eff, x="Horas", y="Ingreso", size="Ingreso", color="Valor por hora",
+                            size_max=64, text=fuente_col_eff,
+                            color_continuous_scale=["#00B7FF", "#00FF88", "#FFD600"],
                         )
                         fig_eff.update_traces(
                             textposition="top center",
@@ -6167,35 +6210,105 @@ if archivo:
                 ingresos_calendario["Fuente"] = ingresos_calendario["INGRESOS_FUENTE"].fillna("Sin fuente").astype(str)
                 ingresos_calendario["Tipo"] = ingresos_calendario["TIPO_INGRESO"].fillna("Sin clasificar").astype(str)
                 ingresos_calendario["Etiqueta"] = ingresos_calendario.apply(
-                    lambda r: f"{r['Fuente']} · ${r['INGRESOS_CANTIDAD']:,.0f}", axis=1
+                    lambda fila: f"{fila['Fuente']} · ${fila['INGRESOS_CANTIDAD']:,.0f}", axis=1
                 )
+                monto_min_cal = float(ingresos_calendario["INGRESOS_CANTIDAD"].min())
+                monto_max_cal = float(ingresos_calendario["INGRESOS_CANTIDAD"].max())
+                paletas_laborales = [
+                    ((128, 140, 11), (206, 222, 26)), # base #CEDE1A
+                    ((146, 158, 14), (226, 241, 47)), # lima luminoso
+                    ((111, 123, 9), (194, 211, 20)),  # lima profundo
+                    ((166, 179, 18), (241, 251, 75)), # lima claro
+                ]
+                fuentes_laborales = sorted(
+                    ingresos_calendario.loc[
+                        ingresos_calendario["Tipo"].eq("Laborales"), "Fuente"
+                    ].unique()
+                )
+                paleta_por_fuente = {
+                    fuente: paletas_laborales[posición % len(paletas_laborales)]
+                    for posición, fuente in enumerate(fuentes_laborales)
+                }
+
+                def tono_calendario(monto, tipo, fuente):
+                    """De oscuro a claro: los importes mayores resaltan con más luz."""
+                    proporción = (
+                        (float(monto) - monto_min_cal) / (monto_max_cal - monto_min_cal)
+                        if monto_max_cal > monto_min_cal else 0.55
+                    )
+                    # Raíz cuadrada: hace perceptible la diferencia también en importes medios.
+                    proporción = proporción ** 0.5
+                    paletas = {
+                        "No laborales": ((0, 105, 245), (0, 225, 255)),
+                        "Sin clasificar": ((71, 85, 105), (174, 196, 222)),
+                    }
+                    if str(tipo) == "Laborales":
+                        oscuro, claro = paleta_por_fuente.get(str(fuente), paletas_laborales[0])
+                    else:
+                        oscuro, claro = paletas.get(str(tipo), paletas["Sin clasificar"])
+                    rgb = [round(inicio + (fin - inicio) * proporción) for inicio, fin in zip(oscuro, claro)]
+                    return f"#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+
+                ingresos_calendario["Tono"] = ingresos_calendario.apply(
+                    lambda fila: tono_calendario(
+                        fila["INGRESOS_CANTIDAD"], fila["Tipo"], fila["Fuente"]
+                    ), axis=1
+                )
+                # Desplazamiento visual mínimo para distinguir ingresos del mismo día.
+                ingresos_calendario["Día visual"] = ingresos_calendario["Día"].astype(float)
+                for _, índices in ingresos_calendario.groupby("Fecha").groups.items():
+                    if len(índices) > 1:
+                        orden = ingresos_calendario.loc[list(índices)].sort_values(
+                            ["Tipo", "Fuente", "INGRESOS_CANTIDAD"]
+                        ).index
+                        ingresos_calendario.loc[orden, "Día visual"] += np.linspace(-0.24, 0.24, len(orden))
                 fig_cal_ing = px.scatter(
                     ingresos_calendario,
-                    x="Día",
+                    x="Día visual",
                     y="Mes",
                     size="INGRESOS_CANTIDAD",
                     color="Tipo",
-                    text="Fuente",
+                    custom_data=["Fecha", "Fuente", "Tipo", "INGRESOS_CANTIDAD"],
                     color_discrete_map={
                         "Laborales": "#00F58A",
                         "No laborales": "#008CFF",
                         "Sin clasificar": "#B026FF",
                     },
-                    size_max=42,
+                    size_max=46,
                 )
                 fig_cal_ing.update_traces(
-                    customdata=ingresos_calendario[["Fecha", "Fuente", "Tipo", "INGRESOS_CANTIDAD"]],
                     hovertemplate=(
                         "<b>📅 %{customdata[0]|%d/%m/%Y}</b><br>"
-                        "🏢 Consigna: %{customdata[1]}<br>"
+                        "📌 Origen del ingreso: %{customdata[1]}<br>"
                         "🏷️ Tipo: %{customdata[2]}<br>"
                         "💰 Valor: $%{customdata[3]:,.0f}<extra></extra>"
                     ),
-                    textposition="top center",
-                    marker=dict(line=dict(color="#F8FAFC", width=1.4), opacity=0.92),
+                    marker=dict(line=dict(color="#000000", width=1.6), opacity=0.78),
                 )
-                fig_cal_ing.update_layout(legend_title_text="Tipo de ingreso", height=430)
-                st.plotly_chart(estilo_grafico(fig_cal_ing, "Días de entrada del dinero y quién consigna"), use_container_width=True)
+                # Se conserva una leyenda por tipo y cada burbuja recibe su tono según el valor.
+                for traza in fig_cal_ing.data:
+                    máscara_tipo = ingresos_calendario["Tipo"].eq(traza.name)
+                    traza.marker.color = ingresos_calendario.loc[máscara_tipo, "Tono"].tolist()
+                fig_cal_ing.update_layout(
+                    legend_title_text="Tipo de ingreso",
+                    height=465,
+                    margin=dict(t=78, b=60, l=70, r=30),
+                    legend=dict(orientation="h", y=1.08, x=0),
+                    xaxis=dict(
+                        title="Día del mes",
+                        tickmode="linear",
+                        dtick=1,
+                        range=[0, 32],
+                        gridcolor="rgba(148,163,184,0.16)",
+                    ),
+                    yaxis=dict(
+                        title="Mes de ingreso",
+                        categoryorder="category ascending",
+                        gridcolor="rgba(148,163,184,0.08)",
+                    ),
+                )
+                st.caption("Cada burbuja representa un ingreso: el tamaño indica el valor, el color el tipo de ingreso, el eje horizontal el día en que entró el dinero y el detalle muestra la fuente registrada en el Excel.")
+                st.plotly_chart(estilo_grafico(fig_cal_ing, "Días de entrada del dinero y origen de cada ingreso"), use_container_width=True)
 
             # Próximo ingreso estimado por periodicidad mediana de la fuente principal.
             fechas_principal = ingresos_analisis.loc[
@@ -6211,24 +6324,6 @@ if archivo:
                         ingresos_analisis.loc[ingresos_analisis["INGRESOS_FUENTE"] == fuente_principal, "INGRESOS_CANTIDAD"].median()
                     )
                     st.info(f"🔮 **Próximo ingreso estimado:** {fuente_principal}, alrededor del **{proxima_fecha_ing:%d/%m/%Y}**, por aproximadamente **${valor_estimado_ing:,.0f}**. Es una estimación basada en recurrencia histórica, no un ingreso confirmado.")
-
-            # Calidad de datos.
-            st.markdown("### 🧹 Calidad de los datos de ingresos")
-            sin_fuente_ing = int(ingresos_analisis["INGRESOS_FUENTE"].astype(str).map(normalizar).isin(["", "SIN FUENTE", "NAN"]).sum())
-            sin_tipo_ing = int(ingresos_analisis["INGRESOS_CATEGORIA"].astype(str).map(normalizar).isin(["", "SIN TIPO", "NAN"]).sum())
-            sin_fecha_ing = int(ingresos_analisis["INGRESOS_FECHA"].isna().sum())
-            valores_no_positivos_ing = int((ingresos_analisis["INGRESOS_CANTIDAD"] <= 0).sum())
-            cols_dup_ing = [c for c in ["INGRESOS_FECHA", "INGRESOS_FUENTE", "INGRESOS_CANTIDAD", "INGRESOS_DESCRIPCION"] if c in ingresos_analisis.columns]
-            dup_ing = ingresos_analisis.duplicated(subset=cols_dup_ing, keep=False) if cols_dup_ing else pd.Series(False, index=ingresos_analisis.index)
-            qi1, qi2, qi3, qi4, qi5 = st.columns(5)
-            qi1.metric("🏷️ Sin fuente", sin_fuente_ing)
-            qi2.metric("🧾 Sin tipo", sin_tipo_ing)
-            qi3.metric("📅 Sin fecha", sin_fecha_ing)
-            qi4.metric("➖ Valores no positivos", valores_no_positivos_ing)
-            qi5.metric("👯 Posibles duplicados", int(dup_ing.sum()))
-            if dup_ing.any():
-                with st.expander("🔍 Revisar posibles ingresos duplicados"):
-                    st.dataframe(ingresos_analisis.loc[dup_ing].sort_values("INGRESOS_FECHA"), use_container_width=True, hide_index=True)
 
             st.divider()
             st.markdown("### 📚 Visualizaciones existentes y detalle completo")
@@ -6351,6 +6446,25 @@ if archivo:
 
             st.markdown("#### Tabla de ingresos cargados")
             st.dataframe(ingresos_filtrados.sort_values(["ANIO", "MES", "INGRESOS_FUENTE"]), use_container_width=True, hide_index=True)
+
+            # Calidad de datos al cierre: después del análisis y del detalle de movimientos.
+            st.divider()
+            st.markdown("### 🧹 Calidad de los datos de ingresos")
+            sin_fuente_ing = int(ingresos_analisis["INGRESOS_FUENTE"].astype(str).map(normalizar).isin(["", "SIN FUENTE", "NAN"]).sum())
+            sin_tipo_ing = int(ingresos_analisis["INGRESOS_CATEGORIA"].astype(str).map(normalizar).isin(["", "SIN TIPO", "NAN"]).sum())
+            sin_fecha_ing = int(ingresos_analisis["INGRESOS_FECHA"].isna().sum())
+            valores_no_positivos_ing = int((ingresos_analisis["INGRESOS_CANTIDAD"] <= 0).sum())
+            cols_dup_ing = [c for c in ["INGRESOS_FECHA", "INGRESOS_FUENTE", "INGRESOS_CANTIDAD", "INGRESOS_DESCRIPCION"] if c in ingresos_analisis.columns]
+            dup_ing = ingresos_analisis.duplicated(subset=cols_dup_ing, keep=False) if cols_dup_ing else pd.Series(False, index=ingresos_analisis.index)
+            qi1, qi2, qi3, qi4, qi5 = st.columns(5)
+            qi1.metric("🏷️ Sin fuente", sin_fuente_ing)
+            qi2.metric("🧾 Sin tipo", sin_tipo_ing)
+            qi3.metric("📅 Sin fecha", sin_fecha_ing)
+            qi4.metric("➖ Valores no positivos", valores_no_positivos_ing)
+            qi5.metric("👯 Posibles duplicados", int(dup_ing.sum()))
+            if dup_ing.any():
+                with st.expander("🔍 Revisar posibles ingresos duplicados"):
+                    st.dataframe(ingresos_analisis.loc[dup_ing].sort_values("INGRESOS_FECHA"), use_container_width=True, hide_index=True)
 
     if pestana_activa == etiquetas_pestanas[5]:
         contexto_pestana("¿Qué obligaciones tengo?", "Resume saldos pendientes, intereses, avance de pago y orden recomendado para atender las deudas.")
@@ -6530,6 +6644,7 @@ if archivo:
                     ),
                 )
                 fig_saldo_rank.update_yaxes(title="", automargin=True)
+                fig_saldo_rank.update_layout(barcornerradius="50%", bargap=0.24)
                 st.plotly_chart(estilo_grafico(fig_saldo_rank, "💰 Mayor saldo pendiente"), use_container_width=True)
             with rk2:
                 costo_rank = deudas_analisis.sort_values("Interés acumulado estimado", ascending=True)
@@ -6553,6 +6668,7 @@ if archivo:
                     ),
                 )
                 fig_costo_rank.update_yaxes(title="", automargin=True)
+                fig_costo_rank.update_layout(barcornerradius="50%", bargap=0.24)
                 st.plotly_chart(estilo_grafico(fig_costo_rank, "🔥 Interés acumulado estimado desde el inicio"), use_container_width=True)
 
             st.markdown("### 🧩 Concentración del saldo total")
@@ -6680,13 +6796,14 @@ if archivo:
                     marker=dict(
                         color=deudas_grafico["Interés %"],
                         colorscale=[
-                            [0.0, "#38BDF8"],
-                            [0.5, "#F59E0B"],
-                            [1.0, "#FF003C"],
+                            [0.0, "#FF3157"],
+                            [0.32, "#F31657"],
+                            [0.64, "#C02CEB"],
+                            [1.0, "#7B2CFF"],
                         ],
                         showscale=True,
-                        colorbar=dict(title="Interés %"),
-                        line=dict(color="#E2E8F0", width=1),
+                        colorbar=dict(title="Interés %", thickness=15),
+                        line=dict(color="#0F172A", width=1.5),
                     ),
                     customdata=deudas_grafico[
                         ["Deuda inicial", "Interés %", "Pagado", "Avance"]
@@ -6720,6 +6837,8 @@ if archivo:
                     autorange="reversed",
                 ),
                 margin=dict(t=75, b=45, l=40, r=150),
+                barcornerradius="50%",
+                bargap=0.26,
                 showlegend=False,
             )
 
@@ -6847,7 +6966,7 @@ if archivo:
                         y=[nombre_deuda],
                         orientation="h",
                         name="Pagado",
-                        marker_color="#34D399",
+                        marker_color="#00E676",
                         text=[f"Pagado ${pagado_deuda:,.0f}"],
                         textposition="inside",
                         hovertemplate="<b>✅ Capital amortizado</b><br>💳 %{y}<br>💰 Valor: $%{x:,.0f}<extra></extra>",
@@ -6860,7 +6979,7 @@ if archivo:
                         y=[nombre_deuda],
                         orientation="h",
                         name="Pendiente",
-                        marker_color="#FB7185",
+                        marker_color="#FF1744",
                         text=[f"Pendiente ${faltante_deuda:,.0f}"],
                         textposition="inside",
                         hovertemplate="<b>🔴 Saldo pendiente</b><br>💳 %{y}<br>💰 Valor: $%{x:,.0f}<extra></extra>",
@@ -6886,6 +7005,8 @@ if archivo:
                         x=0,
                     ),
                     margin=dict(t=55, b=35, l=20, r=20),
+                    barcornerradius="50%",
+                    bargap=0.25,
                 )
 
                 st.plotly_chart(
@@ -7486,24 +7607,6 @@ if archivo:
             sp3.metric("💎 Patrimonio libre", f"{(patrimonio_neto/total_activos*100 if total_activos else 0):.1f}% de activos")
             st.info(f"⚖️ Por cada $100 en activos existen aproximadamente **${deuda_activos_pct:,.0f} en pasivos**. Esta relación describe estructura patrimonial, no capacidad mensual de pago.")
 
-            st.markdown("### 🧹 Calidad de los datos patrimoniales")
-            sin_nombre_pat = int(patrimonio_v917["Elemento"].eq("Sin nombre").sum())
-            sin_tipo_pat = int(tipo_norm_pat.eq("").sum())
-            valores_cero_pat = int(patrimonio_v917["Valor visual"].le(0).sum())
-            fechas_val_col = "Fecha valoración" if "Fecha valoración" in patrimonio_v917.columns else "Fecha" if "Fecha" in patrimonio_v917.columns else None
-            sin_fecha_pat = int(pd.to_datetime(patrimonio_v917[fechas_val_col], errors="coerce", dayfirst=True).isna().sum()) if fechas_val_col else len(patrimonio_v917)
-            duplicados_pat = int(patrimonio_v917[["Elemento", "Valor visual"]].duplicated(keep=False).sum())
-            qp1, qp2, qp3, qp4, qp5 = st.columns(5)
-            qp1.metric("🏷️ Sin nombre", sin_nombre_pat)
-            qp2.metric("📂 Sin tipo", sin_tipo_pat)
-            qp3.metric("0️⃣ Valor cero", valores_cero_pat)
-            qp4.metric("📅 Sin valoración", sin_fecha_pat)
-            qp5.metric("👯 Posibles duplicados", duplicados_pat)
-
-            with st.expander("🔎 Ver tabla patrimonial enriquecida"):
-                columnas_tabla_pat = [c for c in ["Elemento", "Clase", "Categoría", "Subcategoría", "Entidad", "Moneda", "Valor original", "Tasa a COP", "Valor actual", "Saldo pendiente", "Valor neto", "Nivel liquidez", "Fecha valoración", "Estado"] if c in patrimonio_v917.columns]
-                st.dataframe(patrimonio_v917[columnas_tabla_pat], use_container_width=True, hide_index=True)
-
             # ======================================================
             # EVOLUCIÓN ACUMULADA MENSUAL DEL PATRIMONIO
             # - Cada registro del mes se interpreta como un movimiento neto.
@@ -8029,11 +8132,13 @@ if archivo:
             with col4:
                 st.plotly_chart(fig_patrimonio_concentracion_categoria(patrimonio), use_container_width=True)
 
-            st.markdown("### 🌎 Patrimonio por moneda")
-            st.caption(
-                "Muestra cuánto tienes en cada moneda original. La escala logarítmica permite ver juntas "
-                "cantidades de tamaños muy distintos; compara los importes leyendo la unidad indicada en cada barra."
-            )
+            encabezado_moneda, encabezado_inversiones = st.columns(2)
+            with encabezado_moneda:
+                st.markdown("### 🌎 Patrimonio por moneda")
+                st.caption("Composición de activos por moneda y por activo, usando su equivalente en COP.")
+            with encabezado_inversiones:
+                st.markdown("### 💼 Inversiones por moneda")
+                st.caption("Solo Fondo de Emergencia e Inversiones; compara los valores en COP.")
             activos_monedas = patrimonio.loc[
                 patrimonio["Tipo"].map(normalizar).eq("ACTIVO")
             ].copy()
@@ -8091,57 +8196,184 @@ if archivo:
                     axis=1,
                 )
                 monedas_grafico = resumen_monedas[
-                    resumen_monedas["Saldo original"].gt(0)
-                ].copy()
+                    resumen_monedas["Equivalente COP"].gt(0)
+                ].sort_values("Equivalente COP", ascending=True).copy()
 
                 if not monedas_grafico.empty:
-                    fig_monedas_pat = go.Figure(go.Bar(
-                        x=monedas_grafico["Saldo original"],
-                        y=monedas_grafico["Moneda"],
-                        orientation="h",
-                        text=monedas_grafico["Saldo mostrado"],
-                        textposition="outside",
-                        cliponaxis=False,
-                        marker=dict(
-                            color=[
-                                ["#FBBF24", "#22D3EE", "#A78BFA", "#22C55E", "#F472B6", "#F97316"][i % 6]
-                                for i in range(len(monedas_grafico))
-                            ],
-                            line=dict(color="#020617", width=1.5),
-                        ),
-                        customdata=monedas_grafico[[
-                            "Saldo mostrado", "Equivalente mostrado", "Conversión", "Activos"
-                        ]],
-                        hovertemplate=(
-                            "<b>💱 %{y}</b><br>"
-                            "Saldo original: %{customdata[0]}<br>"
-                            "Equivalente: %{customdata[1]}<br>"
-                            "Tasa aplicada: %{customdata[2]}<br>"
-                            "Activos incluidos: %{customdata[3]}<extra></extra>"
-                        ),
+                    # Diagrama solar: centro = total, segundo nivel = moneda, exterior = activo.
+                    activos_solares = activos_monedas.loc[
+                        activos_monedas["Equivalente COP"].gt(0)
+                    ].copy()
+                    colores_monedas = ["#00D9A6", "#38BDF8", "#A78BFA", "#FBBF24", "#F472B6", "#FB7185"]
+                    ids_solares = ["patrimonio_total"]
+                    etiquetas_solares = ["Patrimonio"]
+                    padres_solares = [""]
+                    valores_solares = [float(activos_solares["Equivalente COP"].sum())]
+                    colores_solares = ["#0F172A"]
+                    detalle_solar = ["Total de activos convertido a COP"]
+
+                    for posicion_moneda, moneda_row in monedas_grafico.reset_index(drop=True).iterrows():
+                        moneda = str(moneda_row["Moneda"])
+                        id_moneda = f"moneda_{moneda}"
+                        color_moneda = colores_monedas[posicion_moneda % len(colores_monedas)]
+                        nombre_moneda = {
+                            "COP": "Pesos colombianos (COP)",
+                            "USD": "Dólares estadounidenses (USD)",
+                            "EUR": "Euros (EUR)",
+                            "GBP": "Libras esterlinas (GBP)",
+                        }.get(moneda, moneda)
+                        ids_solares.append(id_moneda)
+                        etiquetas_solares.append(nombre_moneda)
+                        padres_solares.append("patrimonio_total")
+                        valores_solares.append(float(moneda_row["Equivalente COP"]))
+                        colores_solares.append(color_moneda)
+                        detalle_solar.append(
+                            f"Saldo original: {moneda_row['Saldo mostrado']}<br>"
+                            f"Equivalente: {moneda_row['Equivalente mostrado']}<br>"
+                            f"Activos incluidos: {int(moneda_row['Activos'])}"
+                        )
+
+                        activos_moneda = activos_solares.loc[
+                            activos_solares["Moneda"].eq(moneda)
+                        ].reset_index(drop=True)
+                        for posicion_activo, activo_row in activos_moneda.iterrows():
+                            # La subcategoría identifica el activo (p. ej., Franyer, ARQ, AMAZON);
+                            # la descripción puede contener solo la moneda y se usa como respaldo.
+                            descripcion = str(activo_row.get("Subcategoría", "")).strip()
+                            if normalizar(descripcion) in {"", "NAN", "SIN SUBCATEGORIA", "SIN CLASIFICAR"}:
+                                descripcion = str(activo_row.get("Descripción", "Activo sin nombre")).strip()
+                            descripcion = descripcion or "Activo sin nombre"
+                            ids_solares.append(f"{id_moneda}_activo_{posicion_activo}")
+                            etiquetas_solares.append(descripcion)
+                            padres_solares.append(id_moneda)
+                            valores_solares.append(float(activo_row["Equivalente COP"]))
+                            colores_solares.append(color_moneda)
+                            detalle_solar.append(
+                                f"Moneda: {moneda}<br>"
+                                f"Saldo original: {float(activo_row['Saldo original propio']):,.2f} {moneda}<br>"
+                                f"Equivalente: ${float(activo_row['Equivalente COP']):,.0f} COP"
+                            )
+
+                    fig_monedas_pat = go.Figure(go.Sunburst(
+                        ids=ids_solares,
+                        labels=etiquetas_solares,
+                        parents=padres_solares,
+                        values=valores_solares,
+                        branchvalues="total",
+                        maxdepth=2,
+                        insidetextorientation="radial",
+                        marker=dict(colors=colores_solares, line=dict(color="#020617", width=2)),
+                        customdata=detalle_solar,
+                        hovertemplate="<b>%{label}</b><br>%{customdata}<br>Participación: %{percentParent:.1%}<extra></extra>",
                     ))
                     fig_monedas_pat.update_layout(
                         template="plotly_dark",
-                        height=max(360, 95 * len(monedas_grafico)),
+                        height=520,
                         paper_bgcolor="#000000",
                         plot_bgcolor="#000000",
-                        title="Activos por moneda · saldos originales",
-                        xaxis=dict(
-                            title="Monto en la moneda original (escala logarítmica)",
-                            type="log",
-                            tickformat=",.0f",
-                            gridcolor="rgba(148,163,184,0.14)",
-                        ),
-                        yaxis=dict(title="Moneda", automargin=True),
-                        margin=dict(t=65, b=65, l=65, r=180),
-                        showlegend=False,
+                        title="Patrimonio por moneda y activo",
+                        margin=dict(t=65, b=25, l=25, r=25),
                         hoverlabel=dict(bgcolor="#0F172A", font=dict(color="#F8FAFC")),
                     )
-                    st.plotly_chart(
-                        fig_monedas_pat,
-                        use_container_width=True,
-                        key="patrimonio_por_moneda_v1",
-                    )
+                    col_graf_moneda, col_graf_inversiones = st.columns(2)
+                    with col_graf_moneda:
+                        st.plotly_chart(
+                            fig_monedas_pat,
+                            use_container_width=True,
+                            key="patrimonio_por_moneda_v1",
+                        )
+                    with col_graf_inversiones:
+                        categorias_inversion = activos_monedas["Categoría"].map(normalizar)
+                        inversiones_monedas = activos_monedas.loc[
+                            categorias_inversion.str.contains(
+                                "FONDO DE EMERGENCIA|INVERSION", regex=True, na=False
+                            )
+                        ].copy()
+                        resumen_inversiones = (
+                            inversiones_monedas.groupby("Moneda", as_index=False)
+                            .agg(
+                                **{
+                                    "Equivalente COP": ("Equivalente COP", "sum"),
+                                    "Activos": ("Descripción", "count"),
+                                }
+                            )
+                            .sort_values("Equivalente COP", ascending=True)
+                        ) if not inversiones_monedas.empty else pd.DataFrame()
+
+                        if not resumen_inversiones.empty:
+                            ids_inversiones = ["inversiones_total"]
+                            etiquetas_inversiones = ["Inversiones"]
+                            padres_inversiones = [""]
+                            valores_inversiones = [float(inversiones_monedas["Equivalente COP"].sum())]
+                            colores_inversiones = ["#111827"]
+                            detalle_inversiones = ["Fondo de Emergencia e Inversiones · equivalente en COP"]
+                            paleta_inversiones = ["#A78BFA", "#22D3EE", "#34D399", "#FBBF24"]
+
+                            for posicion_moneda, moneda_row in resumen_inversiones.reset_index(drop=True).iterrows():
+                                moneda = str(moneda_row["Moneda"])
+                                id_moneda = f"inversion_{moneda}"
+                                color_moneda = paleta_inversiones[posicion_moneda % len(paleta_inversiones)]
+                                etiqueta_moneda = {
+                                    "COP": "Pesos colombianos (COP)",
+                                    "USD": "Dólares estadounidenses (USD)",
+                                    "EUR": "Euros (EUR)",
+                                    "GBP": "Libras esterlinas (GBP)",
+                                }.get(moneda, moneda)
+                                ids_inversiones.append(id_moneda)
+                                etiquetas_inversiones.append(etiqueta_moneda)
+                                padres_inversiones.append("inversiones_total")
+                                valores_inversiones.append(float(moneda_row["Equivalente COP"]))
+                                colores_inversiones.append(color_moneda)
+                                detalle_inversiones.append(
+                                    f"Capital invertido: ${float(moneda_row['Equivalente COP']):,.0f} COP<br>"
+                                    f"Activos incluidos: {int(moneda_row['Activos'])}"
+                                )
+
+                                activos_moneda = inversiones_monedas.loc[
+                                    inversiones_monedas["Moneda"].eq(moneda)
+                                ].reset_index(drop=True)
+                                for posicion_activo, activo_row in activos_moneda.iterrows():
+                                    etiqueta_activo = str(activo_row.get("Subcategoría", "")).strip()
+                                    if normalizar(etiqueta_activo) in {"", "NAN", "SIN SUBCATEGORIA", "SIN CLASIFICAR"}:
+                                        etiqueta_activo = str(activo_row.get("Descripción", "Activo sin nombre")).strip()
+                                    etiqueta_activo = etiqueta_activo or "Activo sin nombre"
+                                    ids_inversiones.append(f"{id_moneda}_activo_{posicion_activo}")
+                                    etiquetas_inversiones.append(etiqueta_activo)
+                                    padres_inversiones.append(id_moneda)
+                                    valores_inversiones.append(float(activo_row["Equivalente COP"]))
+                                    colores_inversiones.append(color_moneda)
+                                    detalle_inversiones.append(
+                                        f"Moneda: {moneda}<br>"
+                                        f"Equivalente: ${float(activo_row['Equivalente COP']):,.0f} COP"
+                                    )
+
+                            fig_inversiones_moneda = go.Figure(go.Sunburst(
+                                ids=ids_inversiones,
+                                labels=etiquetas_inversiones,
+                                parents=padres_inversiones,
+                                values=valores_inversiones,
+                                branchvalues="total",
+                                maxdepth=2,
+                                insidetextorientation="radial",
+                                marker=dict(colors=colores_inversiones, line=dict(color="#020617", width=2)),
+                                customdata=detalle_inversiones,
+                                hovertemplate="<b>%{label}</b><br>%{customdata}<br>Participación: %{percentParent:.1%}<extra></extra>",
+                            ))
+                            fig_inversiones_moneda.update_layout(
+                                template="plotly_dark",
+                                height=520,
+                                paper_bgcolor="#000000",
+                                plot_bgcolor="#000000",
+                                title="Inversiones por moneda y activo",
+                                margin=dict(t=65, b=25, l=25, r=25),
+                            )
+                            st.plotly_chart(
+                                fig_inversiones_moneda,
+                                use_container_width=True,
+                                key="inversiones_por_moneda_v1",
+                            )
+                        else:
+                            st.info("No hay activos clasificados como Fondo de Emergencia o Inversiones.")
 
                 monedas_sin_tasa = resumen_monedas[
                     resumen_monedas["Tasa a COP"].isna()
@@ -8176,6 +8408,26 @@ if archivo:
                 "patrimonio_procesado.csv",
                 "text/csv",
             )
+
+            # Calidad de datos al cierre, después de los gráficos y el detalle completo.
+            st.divider()
+            st.markdown("### 🧹 Calidad de los datos patrimoniales")
+            sin_nombre_pat = int(patrimonio_v917["Elemento"].eq("Sin nombre").sum())
+            sin_tipo_pat = int(tipo_norm_pat.eq("").sum())
+            valores_cero_pat = int(patrimonio_v917["Valor visual"].le(0).sum())
+            fechas_val_col = "Fecha valoración" if "Fecha valoración" in patrimonio_v917.columns else "Fecha" if "Fecha" in patrimonio_v917.columns else None
+            sin_fecha_pat = int(pd.to_datetime(patrimonio_v917[fechas_val_col], errors="coerce", dayfirst=True).isna().sum()) if fechas_val_col else len(patrimonio_v917)
+            duplicados_pat = int(patrimonio_v917[["Elemento", "Valor visual"]].duplicated(keep=False).sum())
+            qp1, qp2, qp3, qp4, qp5 = st.columns(5)
+            qp1.metric("🏷️ Sin nombre", sin_nombre_pat)
+            qp2.metric("📂 Sin tipo", sin_tipo_pat)
+            qp3.metric("0️⃣ Valor cero", valores_cero_pat)
+            qp4.metric("📅 Sin valoración", sin_fecha_pat)
+            qp5.metric("👯 Posibles duplicados", duplicados_pat)
+
+            with st.expander("🔎 Ver tabla patrimonial enriquecida"):
+                columnas_tabla_pat = [c for c in ["Elemento", "Clase", "Categoría", "Subcategoría", "Entidad", "Moneda", "Valor original", "Tasa a COP", "Valor actual", "Saldo pendiente", "Valor neto", "Nivel liquidez", "Fecha valoración", "Estado"] if c in patrimonio_v917.columns]
+                st.dataframe(patrimonio_v917[columnas_tabla_pat], use_container_width=True, hide_index=True)
 
     if pestana_activa == etiquetas_pestanas[7]:
         contexto_pestana(
@@ -8878,7 +9130,24 @@ if archivo:
             faltante_fondo_emergencia,
             texto_meta="Meta 3 meses",
         )
-        fig_fondo.update_layout(height=260)
+        fig_fondo.update_traces(
+            customdata=[[
+                fondo_emergencia_valor,
+                meta_fondo_emergencia,
+                avance_fondo_emergencia,
+                faltante_fondo_emergencia,
+            ]],
+            hovertemplate=(
+                "<b>🛡️ Fondo de emergencia</b><br>"
+                "Tramo: %{fullData.name}<br>"
+                "💰 Valor actual: $%{customdata[0]:,.0f}<br>"
+                "🎯 Objetivo: $%{customdata[1]:,.0f}<br>"
+                "📊 Cumplimiento: %{customdata[2]:.1f}%<br>"
+                "⚠️ Faltante: $%{customdata[3]:,.0f}"
+                "<extra></extra>"
+            ),
+        )
+        fig_fondo.update_layout(height=260, barcornerradius="50%", bargap=0.32)
         st.plotly_chart(fig_fondo, use_container_width=True)
 
         # ======================================================

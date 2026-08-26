@@ -117,7 +117,7 @@ def _footer(canvas, doc):
     canvas.rect(0, 0, width, 0.65 * cm, fill=1, stroke=0)
     canvas.setFillColor(colors.HexColor("#CBD5E1"))
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V14 - Informe por preguntas")
+    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V16 - Informe por preguntas")
     canvas.drawRightString(width - 1.2 * cm, 0.25 * cm, f"Página {doc.page}")
     canvas.restoreState()
 
@@ -177,7 +177,7 @@ def _kpi_table(items: Iterable[tuple[str, str]], styles):
 def _hero_table(nombre_persona: str, edad_persona: Any, fecha_desde: Any, fecha_hasta: Any, styles):
     """Portada compacta con la misma identidad oscura y neon del dashboard."""
     usable = PAGE[0] - 2.4 * cm
-    hero_title = Paragraph("ALTIUM FINANCIERO V13", ParagraphStyle(
+    hero_title = Paragraph("ALTIUM FINANCIERO V16", ParagraphStyle(
         "HeroTitle", parent=styles["title"], fontSize=25, leading=29,
         textColor=WHITE, alignment=TA_LEFT, spaceAfter=3,
     ))
@@ -327,6 +327,41 @@ def _chart_flow(flujo: pd.DataFrame, title="Ingresos, gastos y balance mensual")
 
 
 
+def _chart_savings_evolution(flujo: pd.DataFrame) -> Optional[BytesIO]:
+    """Replica la lectura de ahorro en pesos y capacidad de ahorro del dashboard."""
+    if flujo is None or flujo.empty or "MES" not in flujo.columns:
+        return None
+    f = flujo.copy()
+    ingresos = pd.to_numeric(f.get("Ingresos", 0), errors="coerce").fillna(0)
+    gastos = pd.to_numeric(f.get("Gastos", 0), errors="coerce").fillna(0)
+    ahorro = pd.to_numeric(f.get("Balance", ingresos - gastos), errors="coerce").fillna(0)
+    capacidad = pd.Series(
+        [valor / ingreso * 100 if ingreso else 0.0 for valor, ingreso in zip(ahorro, ingresos)],
+        index=f.index,
+    )
+    x = list(range(len(f)))
+    fig, (ax_ahorro, ax_capacidad) = plt.subplots(2, 1, figsize=(11.2, 6.3), sharex=True, gridspec_kw={"hspace": .34})
+    colores = [PDF_GREEN if valor >= 0 else PDF_RED for valor in ahorro]
+    barras = ax_ahorro.bar(x, ahorro, color=colores, edgecolor="white", linewidth=.8)
+    ax_ahorro.axhline(0, linewidth=.9, color="#64748B")
+    ax_ahorro.set_title("Ahorro mensual y capacidad de ahorro", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    ax_ahorro.set_ylabel("Ahorro mensual")
+    ax_ahorro.yaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.0f}"))
+    _style_print_axis(ax_ahorro, "y")
+    ax_ahorro.bar_label(barras, labels=[f"${valor:,.0f}" for valor in ahorro], padding=3, fontsize=7, color="#334155")
+
+    ax_capacidad.plot(x, capacidad, color=PDF_BLUE, linewidth=2.8, marker="o", markersize=5.5)
+    ax_capacidad.fill_between(x, 0, capacidad, where=capacidad >= 0, color=PDF_GREEN, alpha=.16)
+    ax_capacidad.fill_between(x, 0, capacidad, where=capacidad < 0, color=PDF_RED, alpha=.16)
+    ax_capacidad.axhline(0, linewidth=.9, color="#64748B")
+    ax_capacidad.set_ylabel("Capacidad (%)")
+    ax_capacidad.set_xticks(x, f["MES"].astype(str).tolist(), rotation=25, ha="right")
+    ax_capacidad.yaxis.set_major_formatter(mtick.PercentFormatter())
+    _style_print_axis(ax_capacidad, "y")
+    fig.subplots_adjust(left=.10, right=.98, top=.90, bottom=.16)
+    return _save_fig(fig)
+
+
 def _chart_income_stability(ingresos: pd.DataFrame) -> Optional[BytesIO]:
     if ingresos is None or ingresos.empty or "INGRESOS_FECHA" not in ingresos.columns or "INGRESOS_CANTIDAD" not in ingresos.columns:
         return None
@@ -353,6 +388,70 @@ def _chart_income_stability(ingresos: pd.DataFrame) -> Optional[BytesIO]:
     return _save_fig(fig)
 
 
+def _chart_income_calendar(ingresos: pd.DataFrame) -> Optional[BytesIO]:
+    """Versión imprimible del calendario de ingresos del dashboard."""
+    required = {"INGRESOS_FECHA", "INGRESOS_CANTIDAD"}
+    if ingresos is None or ingresos.empty or not required.issubset(ingresos.columns):
+        return None
+    tmp = ingresos.copy()
+    tmp["INGRESOS_FECHA"] = pd.to_datetime(tmp["INGRESOS_FECHA"], errors="coerce", dayfirst=True)
+    tmp["INGRESOS_CANTIDAD"] = pd.to_numeric(tmp["INGRESOS_CANTIDAD"], errors="coerce").fillna(0)
+    tmp = tmp.dropna(subset=["INGRESOS_FECHA"])
+    if tmp.empty:
+        return None
+    category_col = next((c for c in ["INGRESOS_CATEGORIA", "CATEGORIA"] if c in tmp.columns), None)
+    tmp["_tipo"] = tmp[category_col].map(_income_type) if category_col else "Sin clasificar"
+    tmp["_periodo"] = tmp["INGRESOS_FECHA"].dt.strftime("%Y-%m")
+    tmp["_dia"] = tmp["INGRESOS_FECHA"].dt.day.astype(float)
+    for _, indices in tmp.groupby("INGRESOS_FECHA").groups.items():
+        if len(indices) > 1:
+            tmp.loc[list(indices), "_dia"] += pd.Series(range(len(indices)), index=list(indices)).map(lambda pos: (pos - (len(indices) - 1) / 2) * .22)
+    periodos = sorted(tmp["_periodo"].unique())
+    posicion_y = {periodo: pos for pos, periodo in enumerate(periodos)}
+    colores = {"Laborales": "#84CC16", "No laborales": "#2563EB", "Sin clasificar": "#94A3B8"}
+    maximo = max(float(tmp["INGRESOS_CANTIDAD"].max()), 1.0)
+    tamanos = 45 + 400 * (tmp["INGRESOS_CANTIDAD"] / maximo).pow(.55)
+    fig, ax = plt.subplots(figsize=(11.2, max(3.8, .62 * len(periodos) + 1.7)))
+    for tipo, bloque in tmp.groupby("_tipo"):
+        ax.scatter(
+            bloque["_dia"], bloque["_periodo"].map(posicion_y),
+            s=tamanos.loc[bloque.index], color=colores.get(tipo, "#94A3B8"), alpha=.80,
+            edgecolors="#172033", linewidths=.8, label=tipo,
+        )
+    ax.set_xlim(.25, 31.75)
+    ax.set_xticks(range(1, 32, 2))
+    ax.set_yticks(list(posicion_y.values()), list(posicion_y.keys()))
+    ax.set_xlabel("Día del mes")
+    ax.set_title("Calendario de entradas de ingresos", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    ax.grid(axis="x", color="#E2E8F0", linewidth=.7)
+    ax.set_axisbelow(True)
+    ax.legend(frameon=False, loc="upper center", ncol=3)
+    fig.subplots_adjust(left=.12, right=.98, top=.80, bottom=.18)
+    return _save_fig(fig)
+
+
+def _chart_income_mix(ingresos: pd.DataFrame) -> Optional[BytesIO]:
+    if ingresos is None or ingresos.empty or "INGRESOS_CANTIDAD" not in ingresos.columns:
+        return None
+    category_col = next((c for c in ["INGRESOS_CATEGORIA", "CATEGORIA"] if c in ingresos.columns), None)
+    if category_col is None:
+        return None
+    tmp = ingresos.copy()
+    tmp["_monto"] = pd.to_numeric(tmp["INGRESOS_CANTIDAD"], errors="coerce").fillna(0)
+    resumen = tmp.assign(_tipo=tmp[category_col].map(_income_type)).groupby("_tipo")["_monto"].sum()
+    resumen = resumen[resumen > 0]
+    if resumen.empty:
+        return None
+    colores = {"Laborales": "#84CC16", "No laborales": "#2563EB", "Sin clasificar": "#94A3B8"}
+    fig, ax = plt.subplots(figsize=(7.6, 4.2))
+    ax.pie(resumen.values, labels=resumen.index, autopct="%1.1f%%", startangle=90,
+           colors=[colores.get(indice, "#94A3B8") for indice in resumen.index],
+           wedgeprops={"width": .46, "edgecolor": "white", "linewidth": 1.2},
+           textprops={"fontsize": 8.5, "color": "#334155"})
+    ax.set_title("Composición de ingresos por tipo", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    return _save_fig(fig)
+
+
 def _chart_budget(flujo: pd.DataFrame) -> Optional[BytesIO]:
     if flujo is None or flujo.empty or "MES" not in flujo.columns or "Presupuesto mensual" not in flujo.columns:
         return None
@@ -371,6 +470,257 @@ def _chart_budget(flujo: pd.DataFrame) -> Optional[BytesIO]:
     ax.legend(frameon=False, loc="upper center", ncol=3)
     fig.subplots_adjust(left=.10, right=.98, top=.80, bottom=.22)
     return _save_fig(fig)
+
+
+def _budget_category_summary(gastos: pd.DataFrame, presupuesto_categoria: Optional[Dict[str, Any]]) -> pd.DataFrame:
+    """Replica la comparación por categoría de la pestaña Presupuesto."""
+    columns = ["Categoría", "Gasto", "Presupuesto", "Diferencia", "% ejecutado", "Estado"]
+    if gastos is None or gastos.empty or "GASTOS_CATEGORIA" not in gastos.columns:
+        return pd.DataFrame(columns=columns)
+    tmp = gastos.copy()
+    tmp["_monto"] = pd.to_numeric(tmp.get("GASTOS_CANTIDAD", 0), errors="coerce").fillna(0)
+    resumen = tmp.groupby("GASTOS_CATEGORIA", dropna=False)["_monto"].sum().reset_index()
+    resumen.columns = ["Categoría", "Gasto"]
+    presupuesto_categoria = presupuesto_categoria or {}
+    clave = lambda valor: " ".join(str(valor).strip().upper().split())
+    resumen["Presupuesto"] = resumen["Categoría"].map(lambda categoria: float(presupuesto_categoria.get(clave(categoria), 0) or 0))
+    resumen["Diferencia"] = resumen["Gasto"] - resumen["Presupuesto"]
+    resumen["% ejecutado"] = resumen.apply(
+        lambda fila: fila["Gasto"] / fila["Presupuesto"] * 100 if fila["Presupuesto"] > 0 else 0.0,
+        axis=1,
+    )
+    resumen["Estado"] = resumen.apply(
+        lambda fila: "Sin presupuesto" if fila["Presupuesto"] <= 0 else (
+            "Controlado" if fila["% ejecutado"] <= 80 else "Atención" if fila["% ejecutado"] <= 100 else "Excedido"
+        ),
+        axis=1,
+    )
+    return resumen.sort_values("Diferencia", ascending=False).reset_index(drop=True)
+
+
+def _chart_budget_categories(resumen: pd.DataFrame, top: int = 10) -> Optional[BytesIO]:
+    if resumen is None or resumen.empty:
+        return None
+    plot = resumen.reindex(resumen["Diferencia"].abs().sort_values(ascending=False).index).head(top).copy()
+    plot = plot.sort_values("Diferencia")
+    labels = _wrap_labels(plot["Categoría"], width=25)
+    y = list(range(len(plot)))
+    fig, ax = plt.subplots(figsize=(11.2, max(4.3, .48 * len(plot) + 1.8)))
+    ax.barh(y, plot["Presupuesto"], height=.62, color="#CBD5E1", label="Presupuesto", edgecolor="white", linewidth=.8)
+    colores = [PDF_RED if estado == "Excedido" else PDF_YELLOW if estado == "Atención" else PDF_GREEN if estado == "Controlado" else "#94A3B8" for estado in plot["Estado"]]
+    barras = ax.barh(y, plot["Gasto"], height=.38, color=colores, label="Gasto real", edgecolor="white", linewidth=.8)
+    ax.set_yticks(y, labels)
+    ax.set_xlabel("Valor")
+    ax.set_title("Desviaciones presupuestales por categoría", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    _style_print_axis(ax, "x")
+    ax.xaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.0f}"))
+    ax.legend(frameon=False, loc="lower right")
+    ax.bar_label(barras, labels=[f"{valor:.0f}%" if presupuesto > 0 else "Sin presupuesto" for valor, presupuesto in zip(plot["% ejecutado"], plot["Presupuesto"])], padding=4, fontsize=7.2, color="#334155")
+    fig.subplots_adjust(left=.30, right=.91, top=.86, bottom=.14)
+    return _save_fig(fig)
+
+
+def _chart_debt_progress(deudas: pd.DataFrame) -> Optional[BytesIO]:
+    required = {"Nombre", "Deuda inicial", "Pagado"}
+    if deudas is None or deudas.empty or not required.issubset(deudas.columns):
+        return None
+    tmp = deudas.copy()
+    for col in ["Deuda inicial", "Pagado"]:
+        tmp[col] = pd.to_numeric(tmp[col], errors="coerce").fillna(0).clip(lower=0)
+    tmp["Pendiente"] = (tmp["Deuda inicial"] - tmp["Pagado"]).clip(lower=0)
+    tmp = tmp.sort_values("Deuda inicial").tail(12)
+    if tmp.empty:
+        return None
+    y = list(range(len(tmp)))
+    fig, ax = plt.subplots(figsize=(11.2, max(4.2, .47 * len(tmp) + 1.8)))
+    ax.barh(y, tmp["Pagado"], color="#00B85A", height=.64, label="Pagado", edgecolor="white", linewidth=.8)
+    ax.barh(y, tmp["Pendiente"], left=tmp["Pagado"], color=PDF_RED, height=.64, label="Pendiente", edgecolor="white", linewidth=.8)
+    ax.set_yticks(y, _wrap_labels(tmp["Nombre"], width=25))
+    ax.set_xlabel("Valor")
+    ax.set_title("Avance de pago de cada deuda", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    _style_print_axis(ax, "x")
+    ax.xaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.0f}"))
+    ax.legend(frameon=False, loc="lower right")
+    fig.subplots_adjust(left=.29, right=.96, top=.86, bottom=.14)
+    return _save_fig(fig)
+
+
+def _chart_debt_concentration(deudas: pd.DataFrame) -> Optional[BytesIO]:
+    if deudas is None or deudas.empty or not {"Nombre", "Saldo"}.issubset(deudas.columns):
+        return None
+    tmp = deudas.copy()
+    tmp["Saldo"] = pd.to_numeric(tmp["Saldo"], errors="coerce").fillna(0).clip(lower=0)
+    resumen = tmp.groupby("Nombre", dropna=False)["Saldo"].sum()
+    resumen = resumen[resumen > 0].sort_values(ascending=False)
+    if resumen.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(8.2, 4.8))
+    ax.pie(resumen.values, labels=_wrap_labels(resumen.index, 18), autopct="%1.1f%%", startangle=90,
+           colors=[PDF_PALETTE[i % len(PDF_PALETTE)] for i in range(len(resumen))],
+           wedgeprops={"width": .45, "edgecolor": "white", "linewidth": 1.2},
+           textprops={"fontsize": 8, "color": "#334155"})
+    ax.set_title("Concentración del saldo total", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    return _save_fig(fig)
+
+
+def _chart_asset_liquidity(patrimonio: pd.DataFrame, value_col: str, liquidity_col: str) -> Optional[BytesIO]:
+    if patrimonio is None or patrimonio.empty or value_col not in patrimonio.columns or liquidity_col not in patrimonio.columns:
+        return None
+    tmp = patrimonio.copy()
+    tmp["_valor"] = pd.to_numeric(tmp[value_col], errors="coerce").fillna(0).abs()
+    resumen = tmp.groupby(liquidity_col, dropna=False)["_valor"].sum().sort_values(ascending=True)
+    resumen = resumen[resumen > 0]
+    if resumen.empty:
+        return None
+    colores = [PDF_GREEN if "ALTA" in str(nombre).upper() else PDF_YELLOW if "MEDIA" in str(nombre).upper() else PDF_BLUE for nombre in resumen.index]
+    fig, ax = plt.subplots(figsize=(11.2, max(3.8, .52 * len(resumen) + 1.6)))
+    barras = ax.barh(_wrap_labels(resumen.index, 24), resumen.values, color=colores, edgecolor="white", linewidth=.8)
+    ax.set_xlabel("Valor patrimonial")
+    ax.set_title("Liquidez patrimonial", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    _style_print_axis(ax, "x")
+    ax.xaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.0f}"))
+    ax.bar_label(barras, labels=[f"${valor:,.0f}" for valor in resumen.values], padding=4, fontsize=7.5, color="#334155")
+    fig.subplots_adjust(left=.27, right=.91, top=.86, bottom=.14)
+    return _save_fig(fig)
+
+
+def _chart_wealth_currency(patrimonio: pd.DataFrame, value_col: str, title: str, investment_only: bool = False) -> Optional[BytesIO]:
+    if patrimonio is None or patrimonio.empty or value_col not in patrimonio.columns:
+        return None
+    currency_col = next((col for col in ["Moneda", "MONEDA", "Divisa"] if col in patrimonio.columns), None)
+    if currency_col is None:
+        return None
+    tmp = patrimonio.copy()
+    if investment_only:
+        category_col = next((col for col in ["Categoría", "CATEGORIA"] if col in tmp.columns), None)
+        if category_col is None:
+            return None
+        categoria = tmp[category_col].fillna("").astype(str).str.upper()
+        tmp = tmp[categoria.str.contains("FONDO DE EMERGENCIA|INVERSION", regex=True, na=False)].copy()
+    tmp["_valor"] = pd.to_numeric(tmp[value_col], errors="coerce").fillna(0).abs()
+    resumen = tmp.groupby(currency_col, dropna=False)["_valor"].sum()
+    resumen = resumen[resumen > 0]
+    if resumen.empty:
+        return None
+    etiquetas = ["Pesos colombianos (COP)" if str(indice).upper() == "COP" else "Dólares estadounidenses (USD)" if str(indice).upper() == "USD" else str(indice) for indice in resumen.index]
+    fig, ax = plt.subplots(figsize=(8.2, 4.8))
+    ax.pie(resumen.values, labels=etiquetas, autopct="%1.1f%%", startangle=90,
+           colors=[PDF_GREEN, PDF_BLUE, PDF_PURPLE, PDF_ORANGE][:len(resumen)],
+           wedgeprops={"width": .45, "edgecolor": "white", "linewidth": 1.2},
+           textprops={"fontsize": 8, "color": "#334155"})
+    ax.set_title(title, fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    return _save_fig(fig)
+
+
+def _chart_score_components(componentes: Iterable[Dict[str, Any]]) -> Optional[BytesIO]:
+    tabla = pd.DataFrame(list(componentes or []))
+    if tabla.empty or "Indicador" not in tabla.columns or "Puntos" not in tabla.columns:
+        return None
+    tabla["Puntos"] = pd.to_numeric(tabla["Puntos"], errors="coerce").fillna(0)
+    maximo_col = next((col for col in tabla.columns if str(col).upper() in {"MÁXIMO", "MAXIMO"}), None)
+    tabla["_maximo"] = pd.to_numeric(tabla[maximo_col], errors="coerce").fillna(0) if maximo_col else tabla["Puntos"]
+    tabla = tabla.sort_values("Puntos")
+    fig, ax = plt.subplots(figsize=(11.2, max(4.2, .50 * len(tabla) + 1.8)))
+    y = list(range(len(tabla)))
+    ax.barh(y, tabla["_maximo"], color="#CBD5E1", height=.62, label="Máximo", edgecolor="white", linewidth=.8)
+    barras = ax.barh(y, tabla["Puntos"], color=PDF_PURPLE, height=.38, label="Puntos logrados", edgecolor="white", linewidth=.8)
+    ax.set_yticks(y, _wrap_labels(tabla["Indicador"], 27))
+    ax.set_xlabel("Puntos")
+    ax.set_title("Componentes del score financiero", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    _style_print_axis(ax, "x")
+    ax.legend(frameon=False, loc="lower right")
+    ax.bar_label(barras, labels=[f"{valor:.1f}" for valor in tabla["Puntos"]], padding=4, fontsize=7.5, color="#334155")
+    fig.subplots_adjust(left=.30, right=.93, top=.86, bottom=.14)
+    return _save_fig(fig)
+
+
+def _chart_goal_progress(metas: pd.DataFrame) -> Optional[BytesIO]:
+    required = {"Meta", "Objetivo", "Actual"}
+    if not isinstance(metas, pd.DataFrame) or metas.empty or not required.issubset(metas.columns):
+        return None
+    tmp = metas.copy()
+    for col in ["Objetivo", "Actual"]:
+        tmp[col] = pd.to_numeric(tmp[col], errors="coerce").fillna(0).clip(lower=0)
+    tmp["Actual visible"] = tmp[["Actual", "Objetivo"]].min(axis=1)
+    tmp["Faltante"] = (tmp["Objetivo"] - tmp["Actual visible"]).clip(lower=0)
+    tmp = tmp.sort_values("Objetivo").tail(12)
+    if tmp.empty:
+        return None
+    y = list(range(len(tmp)))
+    fig, ax = plt.subplots(figsize=(11.2, max(4.2, .50 * len(tmp) + 1.8)))
+    ax.barh(y, tmp["Actual visible"], color=PDF_GREEN, height=.62, label="Actual", edgecolor="white", linewidth=.8)
+    ax.barh(y, tmp["Faltante"], left=tmp["Actual visible"], color="#E2E8F0", height=.62, label="Faltante", edgecolor="white", linewidth=.8)
+    ax.set_yticks(y, _wrap_labels(tmp["Meta"], 27))
+    ax.set_xlabel("Valor")
+    ax.set_title("Progreso de metas financieras", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    _style_print_axis(ax, "x")
+    ax.xaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.0f}"))
+    ax.legend(frameon=False, loc="lower right")
+    fig.subplots_adjust(left=.30, right=.96, top=.86, bottom=.14)
+    return _save_fig(fig)
+
+
+def _altium_compass(
+    *, total_ingresos: float, balance: float, patrimonio: pd.DataFrame,
+    ingresos: pd.DataFrame, felicidad: pd.DataFrame, edad: Any,
+    fecha_desde: Any, fecha_hasta: Any,
+) -> tuple[Optional[BytesIO], Dict[str, float]]:
+    """Replica la síntesis Dinero–Tiempo–Bienestar de la Brújula Altium."""
+    limitar = lambda valor: max(0.0, min(float(valor), 100.0))
+    try:
+        edad_num = float(edad)
+    except (TypeError, ValueError):
+        edad_num = 0.0
+    patrimonio_neto = 0.0
+    if isinstance(patrimonio, pd.DataFrame) and not patrimonio.empty:
+        valor_col = next((col for col in ["Valor neto", "VALOR_NETO", "Valor", "VALOR"] if col in patrimonio.columns), None)
+        if valor_col:
+            patrimonio_neto = float(pd.to_numeric(patrimonio[valor_col], errors="coerce").fillna(0).sum())
+    ing = pd.DataFrame() if ingresos is None else ingresos.copy()
+    if not ing.empty:
+        ing["_monto"] = pd.to_numeric(ing.get("INGRESOS_CANTIDAD", 0), errors="coerce").fillna(0)
+        ing["_fecha"] = pd.to_datetime(ing.get("INGRESOS_FECHA"), errors="coerce", dayfirst=True)
+        ing["_periodo"] = ing["_fecha"].dt.to_period("M").astype(str)
+        mensual = ing.dropna(subset=["_fecha"]).groupby("_periodo")["_monto"].sum()
+        promedio_mensual = float(mensual.mean()) if not mensual.empty else 0.0
+        estabilidad = limitar((1 - min(float(mensual.std(ddof=0) / mensual.mean()), 1.0)) * 100) if len(mensual) >= 2 and mensual.mean() else (50.0 if len(mensual) == 1 else 0.0)
+        fuente_col = next((col for col in ["INGRESOS_FUENTE", "FUENTE"] if col in ing.columns), None)
+        principal_pct = float(ing.groupby(fuente_col)["_monto"].sum().max() / ing["_monto"].sum() * 100) if fuente_col and ing["_monto"].sum() else 100.0
+        tipo_col = next((col for col in ["INGRESOS_CATEGORIA", "CATEGORIA"] if col in ing.columns), None)
+        no_laboral_pct = float(ing.loc[ing[tipo_col].map(_income_type).eq("No laborales"), "_monto"].sum() / ing["_monto"].sum() * 100) if tipo_col and ing["_monto"].sum() else 0.0
+    else:
+        promedio_mensual = estabilidad = 0.0
+        principal_pct, no_laboral_pct = 100.0, 0.0
+    idr = promedio_mensual * edad_num * 1.2
+    ratio_idr = patrimonio_neto / idr if idr > 0 else 0.0
+    dinero = limitar(limitar((balance / total_ingresos * 100 if total_ingresos else 0.0) / 30 * 100) * .40 + limitar(ratio_idr / 2 * 100) * .35 + estabilidad * .25)
+    fel = pd.DataFrame() if felicidad is None else felicidad.copy()
+    horas_semana, horas_eficientes_pct = 0.0, 0.0
+    if not fel.empty and "HORAS" in fel.columns:
+        fel["HORAS"] = pd.to_numeric(fel["HORAS"], errors="coerce").fillna(0)
+        total_horas = float(fel["HORAS"].sum())
+        inicio, fin = pd.to_datetime(fecha_desde, errors="coerce", dayfirst=True), pd.to_datetime(fecha_hasta, errors="coerce", dayfirst=True)
+        semanas = max(((fin - inicio).days + 1) / 7, 1) if pd.notna(inicio) and pd.notna(fin) else 1
+        horas_semana = total_horas / semanas
+        if "VALOR_HORA" in fel.columns and total_horas:
+            fel["VALOR_HORA"] = pd.to_numeric(fel["VALOR_HORA"], errors="coerce").fillna(0)
+            referencia = float(fel["VALOR_HORA"].mean())
+            horas_eficientes_pct = float(fel.loc[fel["VALOR_HORA"].ge(referencia), "HORAS"].sum() / total_horas * 100) if referencia else 0.0
+    carga = 100 if horas_semana <= 30 else 100 - (horas_semana - 30) * 3 if horas_semana <= 40 else 70 - (horas_semana - 40) * 3.75 if horas_semana <= 48 else 40 - (horas_semana - 48) * (40 / 22) if horas_semana <= 70 else 0
+    tiempo = limitar(limitar(carga) * .70 + horas_eficientes_pct * .30)
+    bienestar = limitar(limitar((1 - max(principal_pct - 25, 0) / 75) * 100) * .45 + limitar(no_laboral_pct / 30 * 100) * .25 + estabilidad * .30)
+    valores = {"Dinero": dinero, "Tiempo": tiempo, "Bienestar financiero": bienestar}
+    angulos = [0, 2 * 3.14159265 / 3, 4 * 3.14159265 / 3, 0]
+    radios = list(valores.values()) + [dinero]
+    fig, ax = plt.subplots(figsize=(7.6, 5.4), subplot_kw={"projection": "polar"})
+    ax.plot(angulos, radios, color=PDF_CYAN, linewidth=2.8, marker="o")
+    ax.fill(angulos, radios, color=PDF_CYAN, alpha=.22)
+    ax.set_xticks(angulos[:-1], list(valores.keys()))
+    ax.set_ylim(0, 100)
+    ax.set_yticks([25, 50, 75, 100])
+    ax.set_yticklabels(["25", "50", "75", "100"], fontsize=7)
+    ax.set_title("Brújula Altium · equilibrio actual", fontsize=12.5, fontweight="bold", color="#0F172A", pad=20)
+    return _save_fig(fig), valores
 
 
 def _chart_happiness_company(felicidad: pd.DataFrame) -> Optional[BytesIO]:
@@ -456,6 +806,34 @@ def _chart_fixed_variable(gastos: pd.DataFrame) -> Optional[BytesIO]:
            textprops={"fontsize": 8, "color": "#334155"})
     ax.set_title("Composición por tipo de gasto", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
     fig.subplots_adjust(left=.08, right=.92, top=.86, bottom=.08)
+    return _save_fig(fig)
+
+
+def _chart_top_expense_movements(gastos: pd.DataFrame, top: int = 10) -> Optional[BytesIO]:
+    """Muestra los movimientos individuales que más explican el gasto."""
+    if gastos is None or gastos.empty or "GASTOS_CANTIDAD" not in gastos.columns:
+        return None
+    label_col = next(
+        (col for col in ["GASTOS_DESCRIPCION", "GASTOS_SUBCATEGORIA", "GASTOS_CATEGORIA"] if col in gastos.columns),
+        None,
+    )
+    if not label_col:
+        return None
+    tmp = gastos.copy()
+    tmp["_valor"] = pd.to_numeric(tmp["GASTOS_CANTIDAD"], errors="coerce").fillna(0)
+    tmp["_etiqueta"] = tmp[label_col].fillna("Sin descripción").astype(str).str.strip().replace("", "Sin descripción")
+    top_movimientos = tmp.nlargest(top, "_valor").sort_values("_valor", ascending=True)
+    if top_movimientos.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(11.2, max(4.2, 0.48 * len(top_movimientos) + 1.7)))
+    colores = ["#FF4D6D" if i == len(top_movimientos) - 1 else "#F97316" for i in range(len(top_movimientos))]
+    barras = ax.barh(_wrap_labels(top_movimientos["_etiqueta"], width=28), top_movimientos["_valor"], color=colores, edgecolor="white", linewidth=.8)
+    ax.set_xlabel("Valor del movimiento")
+    ax.set_title("Top movimientos individuales de gasto", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
+    _style_print_axis(ax, "x")
+    ax.xaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.0f}"))
+    ax.bar_label(barras, labels=[f"${valor:,.0f}" for valor in top_movimientos["_valor"]], padding=4, fontsize=7.5, color="#334155")
+    fig.subplots_adjust(left=.30, right=.91, top=.88, bottom=.14)
     return _save_fig(fig)
 
 
@@ -648,6 +1026,7 @@ def generar_informe_financiero_pdf(
     gastos: pd.DataFrame, ingresos: pd.DataFrame, flujo: pd.DataFrame,
     deudas: pd.DataFrame, patrimonio: pd.DataFrame, metas: Any,
     felicidad: pd.DataFrame, presupuesto_periodo: float = 0.0,
+    presupuesto_categoria: Optional[Dict[str, Any]] = None,
     score_financiero: Optional[float] = None,
     componentes_score: Optional[Iterable[Dict[str, Any]]] = None,
 ) -> bytes:
@@ -656,7 +1035,7 @@ def generar_informe_financiero_pdf(
     doc = BaseDocTemplate(
         output, pagesize=PAGE, leftMargin=1.2 * cm, rightMargin=1.2 * cm,
         topMargin=.9 * cm, bottomMargin=.9 * cm,
-        title="Altium Financiero V14 - Informe por preguntas", author="Altium Financiero",
+        title="Altium Financiero V16 - Informe por preguntas", author="Altium Financiero",
     )
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="normal")
     doc.addPageTemplates(PageTemplate(id="main", frames=[frame], onPage=_footer))
@@ -719,6 +1098,7 @@ def generar_informe_financiero_pdf(
                 gastos, "GASTOS_SUBCATEGORIA", "GASTOS_CANTIDAD",
                 "Subcategorias con mayor gasto", top=12,
             ), height=8.6 * cm)
+        _add_chart(story, _chart_top_expense_movements(gastos), height=8.6 * cm)
         story.append(PageBreak())
         story.append(_df_table(cat, styles, money_cols=["Monto"], max_rows=18))
         top_cols = [c for c in ["GASTOS_FECHA", "GASTOS_DESCRIPCION", "GASTOS_CATEGORIA", "GASTOS_SUBCATEGORIA", "GASTOS_CANTIDAD"] if c in gastos.columns]
@@ -746,6 +1126,7 @@ def generar_informe_financiero_pdf(
         )
         story += [_insight_box("Qué cambió recientemente", tendencia_texto, styles, "green" if balance_ultimo >= 0 else "red"), Spacer(1, .08 * cm)]
     _add_chart(story, _chart_flow(flujo, "Evolución mensual del flujo financiero"), height=7.2 * cm)
+    _add_chart(story, _chart_savings_evolution(flujo), height=10.3 * cm)
     cols = [c for c in ["MES", "Ingresos", "Gastos", "Balance", "Balance acumulado", "Capacidad ahorro %"] if flujo is not None and c in flujo.columns]
     story.append(_df_table(flujo[cols] if cols else flujo, styles, money_cols=["Ingresos", "Gastos", "Balance", "Balance acumulado"], max_rows=18))
     story.append(PageBreak())
@@ -789,6 +1170,15 @@ def generar_informe_financiero_pdf(
         ("Disponible", _money(disponible_pdf)),
         ("Ejecución", f"{ejecucion_pdf:.1f}%"),
     ], styles))
+    presupuesto_categorias_pdf = _budget_category_summary(gastos, presupuesto_categoria)
+    if not presupuesto_categorias_pdf.empty:
+        conteo_estados = presupuesto_categorias_pdf["Estado"].value_counts()
+        story += [Spacer(1, .14 * cm), _kpi_table([
+            ("Controlado", str(int(conteo_estados.get("Controlado", 0)))),
+            ("Atención", str(int(conteo_estados.get("Atención", 0)))),
+            ("Excedido", str(int(conteo_estados.get("Excedido", 0)))),
+            ("Sin presupuesto", str(int(conteo_estados.get("Sin presupuesto", 0)))),
+        ], styles)]
     if presupuesto_total_pdf > 0:
         if ejecucion_pdf > 100:
             presupuesto_texto = f"Se superó el presupuesto en <b>{_money(abs(disponible_pdf))}</b>. La ejecución llegó a <b>{ejecucion_pdf:.1f}%</b>, por lo que el siguiente paso es identificar las categorías responsables del exceso."
@@ -801,8 +1191,18 @@ def generar_informe_financiero_pdf(
             presupuesto_tono = "green"
         story += [Spacer(1, .14 * cm), _insight_box("Estado del presupuesto", presupuesto_texto, styles, presupuesto_tono)]
     _add_chart(story, _chart_budget(flujo), height=6.9 * cm)
+    _add_chart(story, _chart_budget_categories(presupuesto_categorias_pdf), height=8.4 * cm)
     budget_cols = [c for c in ["MES", "Gastos", "Presupuesto mensual", "Diferencia vs presupuesto", "Estado presupuesto"] if flujo is not None and c in flujo.columns]
     story.append(_df_table(flujo[budget_cols] if budget_cols else flujo, styles, money_cols=["Gastos", "Presupuesto mensual", "Diferencia vs presupuesto"], max_rows=10))
+    if not presupuesto_categorias_pdf.empty:
+        story += [Spacer(1, .28 * cm), Paragraph("Semáforo y cumplimiento por categoría", styles["section"])]
+        story.append(_df_table(
+            presupuesto_categorias_pdf,
+            styles,
+            money_cols=["Gasto", "Presupuesto", "Diferencia"],
+            pct_cols=["% ejecutado"],
+            max_rows=18,
+        ))
     story.append(PageBreak())
 
     # 5. Ingresos
@@ -872,6 +1272,8 @@ def generar_informe_financiero_pdf(
         _add_chart(story, _chart_income_stability(ingresos), height=8.2 * cm)
         if fuente_col:
             _add_chart(story, _chart_group(ing, fuente_col, "INGRESOS_CANTIDAD", "Principales fuentes de ingreso"), height=8.3 * cm)
+        _add_chart(story, _chart_income_calendar(ingresos), height=7.6 * cm)
+        _add_chart(story, _chart_income_mix(ingresos), width=15.0 * cm, height=8.0 * cm)
         story += [Spacer(1, .25 * cm), Paragraph("Composición por tipo de ingreso", styles["section"])]
         tipo_res_pdf = ing.groupby("TIPO_INGRESO", dropna=False)["INGRESOS_CANTIDAD"].sum().reset_index().sort_values("INGRESOS_CANTIDAD", ascending=False)
         story.append(_df_table(tipo_res_pdf, styles, money_cols=["INGRESOS_CANTIDAD"], max_rows=15))
@@ -904,6 +1306,8 @@ def generar_informe_financiero_pdf(
         ], styles))
         if {"Nombre", "Saldo"}.issubset(deuda_pdf.columns):
             _add_chart(story, _chart_group(deuda_pdf, "Nombre", "Saldo", "Saldo pendiente por obligación", top=12), height=8.3 * cm)
+            _add_chart(story, _chart_debt_concentration(deuda_pdf), width=15.0 * cm, height=8.0 * cm)
+        _add_chart(story, _chart_debt_progress(deuda_pdf), height=8.5 * cm)
         if {"Nombre", "Interés", "Saldo"}.issubset(deuda_pdf.columns):
             deuda_pdf["Interés %"] = deuda_pdf["Interés"] * 100
             deuda_pdf["Costo anual estimado"] = deuda_pdf["Interés"] * deuda_pdf["Saldo"]
@@ -965,6 +1369,10 @@ def generar_informe_financiero_pdf(
                 # El eje usa nombres o descripciones; nunca fechas.
                 chart_pat = _chart_group(pat_pdf.assign(**{nombre_col: pat_pdf[nombre_col].fillna("Sin nombre").astype(str)}), nombre_col, valor_col, "Composición del patrimonio por nombre", top=14)
                 _add_chart(story, chart_pat, height=7.6 * cm)
+            if liquidez_col:
+                _add_chart(story, _chart_asset_liquidity(pat_pdf, valor_col, liquidez_col), height=7.2 * cm)
+            _add_chart(story, _chart_wealth_currency(pat_pdf, valor_col, "Patrimonio por moneda"), width=15.0 * cm, height=8.0 * cm)
+            _add_chart(story, _chart_wealth_currency(pat_pdf, valor_col, "Inversiones y fondo de emergencia por moneda", investment_only=True), width=15.0 * cm, height=8.0 * cm)
             concentracion_pat_txt = ""
             if nombre_col and not pat_pdf.empty:
                 valores_abs = pat_pdf.groupby(nombre_col, dropna=False)[valor_col].sum().abs().sort_values(ascending=False)
@@ -1007,10 +1415,12 @@ def generar_informe_financiero_pdf(
     story += [Spacer(1, .35 * cm), _insight_box("Interpretación del score", score_texto, styles, "green" if score >= 75 else "yellow" if score >= 50 else "red")]
     if componentes_pdf:
         tabla_componentes = pd.DataFrame(componentes_pdf)
+        _add_chart(story, _chart_score_components(componentes_pdf), height=8.0 * cm)
         columnas_componentes = [c for c in ["Indicador", "Puntos", "Máximo", "Puntaje %", "Base"] if c in tabla_componentes.columns]
         story += [Spacer(1, .3 * cm), Paragraph("Componentes del score", styles["section"])]
         story.append(_df_table(tabla_componentes[columnas_componentes], styles, max_rows=10))
     if isinstance(metas, pd.DataFrame) and not metas.empty:
+        _add_chart(story, _chart_goal_progress(metas), height=8.0 * cm)
         story += [Spacer(1, .4 * cm), Paragraph("Metas registradas", styles["question"]), _df_table(metas, styles, max_rows=20)]
     story.append(PageBreak())
 

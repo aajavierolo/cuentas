@@ -1894,7 +1894,7 @@ def obtener_trm_colombia():
         "mensaje": "No fue posible consultar la TRM en este momento.",
     }
     try:
-        solicitud = Request(endpoint, headers={"User-Agent": "Altium-Financiero-V14/1.0"})
+        solicitud = Request(endpoint, headers={"User-Agent": "Altium-Financiero-V16/1.0"})
         with urlopen(solicitud, timeout=7) as respuesta:
             datos = json.loads(respuesta.read().decode("utf-8"))
         if datos:
@@ -3016,6 +3016,8 @@ def fig_progreso_meta(nombre, actual, objetivo, faltante, texto_meta="Meta"):
         yaxis_title="",
         legend_title="",
         showlegend=False,
+        barcornerradius="50%",
+        bargap=0.28,
         margin=dict(t=35, b=35, l=20, r=20),
         font=dict(color="#e2e8f0"),
     )

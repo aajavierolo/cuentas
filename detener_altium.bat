@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-echo Deteniendo Altium Financiero V14...
+echo Deteniendo Altium Financiero V16...
 docker compose down
 if errorlevel 1 (
     echo ERROR: No fue posible detener el proyecto.
