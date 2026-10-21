@@ -1,4 +1,4 @@
-Altium Financiero V16
+Altium Financiero V19
 
 Ejecutar:
   streamlit run app.py

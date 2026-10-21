@@ -5,9 +5,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import unicodedata
 import json
+import hashlib
 from urllib.request import Request, urlopen
 
-st.set_page_config(page_title="Estado Financiero", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Altium Financiero V19", layout="wide", page_icon="📊")
 
 PALETA_CATEGORIAS = [
     "#4F46E5", "#0EA5E9", "#14B8A6", "#22C55E", "#F59E0B",
@@ -368,20 +369,255 @@ section[data-testid="stSidebar"] *::-webkit-scrollbar-thumb {
     border-radius: 999px;
 }
 
+/* Estilo de tarjetas compartido con GAC. */
+[class*="st-key-avance_deuda_tarjetas_"] div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+    font-size: calc(clamp(1.5rem, 2.4vw, 2.35rem) - 2pt);
+    white-space: nowrap;
+    overflow-wrap: normal;
+    letter-spacing: -.025em;
+}
+[class*="st-key-avance_deuda_tarjetas_"] div[data-testid="stMetric"] [data-testid="stMetricValue"] > div {
+    white-space: nowrap;
+    overflow-wrap: normal;
+}
+[class*="st-key-avance_deuda_tarjetas_"] div[data-testid="stMetric"] {
+    padding: .75rem .5rem;
+}
+[class*="st-key-avance_deuda_tarjetas_"] div[data-testid="stMetric"] label {
+    font-size: calc(.9rem - 2pt);
+}
+.perfil-persona {
+    --card-color: #68e5ff;
+    position: relative;
+    padding: 1.25rem 1.5rem;
+    min-height: 148px;
+    box-sizing: border-box;
+    text-align: center;
+    border: 1px solid rgba(104,229,255,.55);
+    border-radius: 20px;
+    background: radial-gradient(ellipse at 15% 0%, rgba(57,215,255,.2), transparent 60%),
+                radial-gradient(ellipse at 95% 100%, rgba(167,139,250,.2), transparent 60%), #0b1728;
+    box-shadow: 0 12px 32px rgba(0,0,0,.38), 0 0 24px rgba(57,215,255,.14), inset 0 1px 0 rgba(255,255,255,.08);
+    transition: box-shadow .25s ease;
+}
+.perfil-persona:hover {
+    box-shadow: 0 16px 40px rgba(0,0,0,.45), 0 0 36px rgba(57,215,255,.24);
+}
+.perfil-etiqueta {
+    display: flex; justify-content: center; align-items: center; gap: .5rem;
+    color: #dcecf5; font-family: inherit; font-size: .9rem; font-weight: 800; letter-spacing: normal;
+}
+.icono-tarjeta-resumen { font-size: 1.85rem; line-height: 1.2; letter-spacing: normal; }
+.perfil-persona.tarjeta-lectura-flujo {
+    min-height: 260px;
+    padding: 1.5rem;
+}
+.tarjeta-lectura-flujo .gac-card-caption {
+    font-size: 1.05rem;
+    line-height: 1.65;
+    color: #e2eef8;
+    margin-top: 1rem !important;
+}
+[class*="st-key-fila_indice_alineada_"] [data-testid="stHorizontalBlock"] {
+    align-items: stretch;
+}
+[class*="st-key-fila_indice_alineada_"] [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"],
+[class*="st-key-fila_indice_alineada_"] [data-testid="stColumn"]:first-child [data-testid="stVerticalBlock"],
+[class*="st-key-fila_indice_alineada_"] [data-testid="stElementContainer"]:has(.tarjeta-lectura-flujo),
+[class*="st-key-fila_indice_alineada_"] [data-testid="stMarkdown"]:has(.tarjeta-lectura-flujo),
+[class*="st-key-fila_indice_alineada_"] [data-testid="stMarkdownContainer"]:has(.tarjeta-lectura-flujo) {
+    height: 100%;
+}
+[class*="st-key-fila_indice_alineada_"] .tarjeta-lectura-flujo {
+    height: 100%;
+    min-height: 330px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.perfil-nombre {
+    margin: .65rem 0 .8rem;
+    font-size: clamp(1.4rem, 2.5vw, 2.3rem);
+    font-weight: 900; line-height: 1.25; letter-spacing: .025em;
+    overflow-wrap: anywhere;
+    color: #f0faff;
+    text-shadow: 0 2px 15px rgba(104,229,255,.2);
+}
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+    .perfil-nombre {
+        background: linear-gradient(100deg, #ffffff 10%, #8feaff 50%, #cbb8ff 90%);
+        background-clip: text; -webkit-background-clip: text; color: transparent;
+    }
+}
+.perfil-acento {
+    height: 3px; width: 40%; margin: 0 auto; border-radius: 999px;
+    background: linear-gradient(90deg, transparent, #68e5ff, #b89cff, transparent);
+    box-shadow: 0 0 12px rgba(104,229,255,.3);
+}
+@keyframes pulso-dias-cubiertos {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .45; }
+}
+.dias-cubiertos-parpadeo { animation: pulso-dias-cubiertos 2.8s ease-in-out infinite; }
+.perfil-nombre.indicador-financiero-positivo { background: none; color: #73ffb8; }
+.perfil-nombre.indicador-financiero-negativo { background: none; color: #ff7890; }
+.perfil-nombre.indicador-financiero-neutro { background: none; color: #ffffff; }
+@media (prefers-reduced-motion: reduce) {
+    .dias-cubiertos-parpadeo { animation: none; }
+}
+.st-key-nombre_persona_blanco div[data-testid="stMetric"] [data-testid="stMetricValue"],
+.st-key-edad_blanco div[data-testid="stMetric"] [data-testid="stMetricValue"],
+.gac-card-balance .gac-card-value {
+    color: #ffffff !important;
+}
+.gac-card,
 div[data-testid="stMetric"] {
-    background: #0a0a0a;
-    border: 1px solid rgba(0, 240, 255, 0.4);
-    border-radius: 14px;
-    padding: 0.75rem 1rem;
-    box-shadow: 0 0 12px rgba(0, 240, 255, 0.12), 0 4px 16px rgba(0, 0, 0, 0.5);
+    --card-color: #39d7ff;
+    background: linear-gradient(135deg, #102b49, #0b1b2d);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--card-color) 20%, #0b1b2d), #0b1b2d);
+    border: 2px solid var(--card-color);
+    border-radius: 16px;
+    padding: 1rem;
+    box-shadow: 0 0 22px color-mix(in srgb, var(--card-color) 18%, transparent);
+    min-height: 148px;
+    box-sizing: border-box;
 }
-
+.gac-card.gac-card-ingresos {
+    --card-color: #52e0a4;
+    background: linear-gradient(135deg, #103e32, #0b241f);
+    border: 2px solid #52e0a4;
+    box-shadow: 0 0 22px rgba(82,224,164,.18);
+}
+.gac-card-ingresos .gac-card-value { color: #73ffb8 !important; }
+.gac-card.gac-card-comparacion {
+    background: linear-gradient(135deg, #16734b 0%, #104632 45%, #071b18 100%);
+    border-color: #73ffb8;
+    box-shadow: 0 0 26px rgba(82,224,164,.24);
+}
+.gac-card-comparacion .gac-card-caption {
+    display: block;
+    background: rgba(115,255,184,.14);
+    border: 1px solid rgba(115,255,184,.45);
+    border-radius: 10px;
+    padding: .6rem .5rem;
+    margin-top: .65rem;
+    color: #deffec;
+    font-size: 1rem;
+    font-weight: 800;
+}
+.gac-card.gac-card-gastos {
+    --card-color: #ff526e;
+    background: linear-gradient(135deg, #491923, #280e17);
+    border-color: #ff526e;
+    box-shadow: 0 0 22px rgba(255,82,110,.18);
+}
+.gac-card-gastos .gac-card-value { color: #ff7890 !important; }
+.gac-card.gac-card-gastos.gac-card-comparacion {
+    background: linear-gradient(135deg, #8c253e 0%, #491923 45%, #280e17 100%);
+    border-color: #ff7890;
+    box-shadow: 0 0 26px rgba(255,82,110,.24);
+}
+.gac-card.gac-card-balance-promedio.gac-card-comparacion {
+    background: linear-gradient(135deg, #155b79 0%, #102b49 45%, #071b2b 100%);
+    border-color: #39d7ff;
+    box-shadow: 0 0 26px rgba(57,215,255,.24);
+}
+.gac-card-comparacion.gac-comparacion-negativo .gac-card-caption { color: #ff7890; background: #35131e; border-color: #ff526e; }
+.gac-card-comparacion.gac-comparacion-positivo .gac-card-caption { color: #73ffb8; }
+.gac-card-comparacion.gac-comparacion-neutro .gac-card-caption { color: #ffffff; }
+.gac-card,
+div[data-testid="stMetric"] {
+    transition: box-shadow .22s ease, transform .22s ease;
+}
+.gac-card:hover,
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 0 28px color-mix(in srgb, var(--card-color) 40%, transparent),
+                0 14px 30px rgba(0,0,0,.45) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+    .gac-card, div[data-testid="stMetric"] { transition: none; }
+    .gac-card:hover, div[data-testid="stMetric"]:hover { transform: none; }
+}
+.gac-card-label,
 div[data-testid="stMetric"] label {
-    color: #bfdbfe !important;
+    color: #dcecf5 !important;
+    font-size: .9rem;
+    font-weight: 800;
 }
-
+.gac-card-value,
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    color: #f8fafc !important;
+    color: var(--card-color) !important;
+    font-size: clamp(1.5rem, 2.4vw, 2.35rem);
+    font-weight: 900;
+    line-height: 1.2;
+    margin: .35rem 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+.gac-card,
+div[data-testid="stMetric"] { text-align: center; }
+.gac-card-label { display: flex; align-items: center; justify-content: center; gap: .5rem; }
+.gac-card-icon { font-size: 1.8rem; line-height: 1.2; margin-bottom: .45rem; text-align: center; }
+@keyframes parpadeo-icono-disponible {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+.gac-card-disponible .gac-card-icon {
+    animation: parpadeo-icono-disponible 2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .gac-card-disponible .gac-card-icon { animation: none; }
+}
+.gac-card-value, .gac-card-caption { text-align: center; }
+div[data-testid="stMetric"] [data-testid="stMetricLabel"],
+div[data-testid="stMetric"] [data-testid="stMetricDelta"] { justify-content: center; }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { text-align: center; }
+.gac-help { position: relative; cursor: help; color: var(--card-color); font-size: 1rem; flex-shrink: 0; }
+.gac-tooltip {
+    visibility: hidden; opacity: 0; position: absolute; right: 0; top: calc(100% + 10px);
+    width: 290px; max-width: 70vw; box-sizing: border-box; padding: 16px 18px;
+    background: linear-gradient(145deg, #142b43, #081522);
+    border: 1px solid rgba(154,177,200,.3); border-top: 3px solid var(--card-color); border-radius: 14px;
+    color: #eef7ff; font-size: .86rem; font-weight: 400; line-height: 1.6;
+    box-shadow: 0 14px 40px rgba(0,0,0,.5); z-index: 1000; white-space: normal; text-align: left;
+    transform: translateY(5px); transition: opacity .18s ease, transform .18s ease, visibility .18s;
+}
+.gac-help:hover .gac-tooltip, .gac-help:focus .gac-tooltip { visibility: visible; opacity: 1; transform: translateY(0); }
+[data-baseweb="tooltip"] {
+    background: linear-gradient(145deg, #142b43, #081522) !important;
+    border: 1px solid rgba(154,177,200,.3) !important;
+    border-top: 3px solid #39d7ff !important;
+    border-radius: 14px !important;
+    padding: 16px 18px !important;
+    color: #eef7ff !important;
+    box-shadow: 0 14px 40px rgba(0,0,0,.5) !important;
+    font-size: .86rem !important;
+    line-height: 1.6 !important;
+    max-width: min(320px, 85vw);
+}
+@media (prefers-reduced-motion: reduce) {
+    .gac-tooltip { transition: none; transform: none; }
+}
+[data-baseweb="tooltip"] > div,
+[data-baseweb="tooltip"] [data-testid="stTooltipContent"],
+[data-baseweb="tooltip"] [data-testid="stMarkdownContainer"],
+[data-baseweb="tooltip"] [data-testid="stTooltipContent"] div {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #eef7ff !important;
+}
+.gac-help:focus-visible { outline: 2px solid var(--card-color); outline-offset: 3px; border-radius: 3px; }
+.gac-card-caption {
+    color: #b4c9d9;
+    font-size: .78rem;
+    line-height: 1.4;
+}
+div[data-testid="stMetric"] [data-testid="stMetricValue"] > div {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
 }
 
 .stTabs [data-baseweb="tab-list"] {
@@ -473,6 +709,40 @@ hr {
 }
 </style>
 """
+
+
+def clasificar_flujo_deuda_mensual(indice):
+    """Rangos definidos por el usuario; límites continuos para decimales."""
+    if indice is None or pd.isna(indice):
+        return "No calculable", "neutro"
+    if indice < 0:
+        return "Revisar datos", "neutro"
+    if indice == 0:
+        return "Ideal", "positivo"
+    if indice <= 10:
+        return "Muy bien", "positivo"
+    if indice <= 30:
+        return "Adecuado", "positivo"
+    if indice <= 40:
+        return "Crítico", "negativo"
+    return "Sobreendeudado", "negativo"
+
+
+def clasificar_indice_endeudamiento(indice):
+    """Clasificación del usuario con intervalos continuos."""
+    if indice is None or pd.isna(indice):
+        return "No calculable", "neutro"
+    if indice < 0:
+        return "Revisar datos", "neutro"
+    if indice == 0:
+        return "Todo lo que tienes es tuyo", "positivo"
+    if indice <= 15:
+        return "Nivel bueno", "positivo"
+    if indice <= 40:
+        return "Manejable", "positivo"
+    if indice <= 60:
+        return "Crítico", "negativo"
+    return "Sobreendeudado", "negativo"
 
 
 def normalizar(texto):
@@ -902,7 +1172,7 @@ def tooltip_jerarquia(nivel, nombre, monto, presupuesto, transacciones, pct_tota
     return "<br>".join(lineas)
 
 
-def construir_nodos_categorias(df, presupuesto_cat, presupuesto_sub):
+def construir_nodos_categorias(df, presupuesto_cat, presupuesto_sub, usar_descripciones=False):
     total = float(df["GASTOS_CANTIDAD"].sum()) or 1.0
     ids, labels, parents, values, tooltips = [], [], [], [], []
 
@@ -919,6 +1189,25 @@ def construir_nodos_categorias(df, presupuesto_cat, presupuesto_sub):
         parents.append("")
         values.append(cat_monto)
         tooltips.append(tooltip_jerarquia("Categoría", cat_id, cat_monto, cat_pres, cat_trans, cat_pct))
+
+        if usar_descripciones:
+            descripciones = cat_df.get("GASTOS_DESCRIPCION", pd.Series("Sin descripción", index=cat_df.index))
+            descripciones = descripciones.fillna("").astype(str).str.strip().replace("", "Sin descripción")
+            detalles = cat_df.assign(_descripcion=descripciones).groupby("_descripcion")["GASTOS_CANTIDAD"].agg(["sum", "count"])
+            for indice, (descripcion, detalle) in enumerate(detalles.iterrows()):
+                monto = float(detalle["sum"])
+                ids.append(f"descripcion:{len(cat_id)}:{cat_id}:{indice}")
+                labels.append(descripcion)
+                parents.append(cat_id)
+                values.append(monto)
+                tooltips.append(
+                    tooltip_jerarquia(
+                        "Descripción", descripcion, monto, 0, int(detalle["count"]),
+                        monto / total * 100, monto / cat_monto * 100 if cat_monto else 0,
+                        mostrar_presupuesto=False,
+                    )
+                )
+            continue
 
         subs = (
             cat_df.groupby("GASTOS_SUBCATEGORIA", dropna=False)["GASTOS_CANTIDAD"]
@@ -951,13 +1240,16 @@ def construir_nodos_categorias(df, presupuesto_cat, presupuesto_sub):
 
 def fig_jerarquia_categorias(df, presupuesto_cat, presupuesto_sub, tipo="treemap"):
     ids, labels, parents, values, tooltips = construir_nodos_categorias(
-        df, presupuesto_cat, presupuesto_sub
+        df, presupuesto_cat, presupuesto_sub, usar_descripciones=(tipo == "treemap")
     )
     if not ids:
         return go.Figure()
 
     trace_cls = go.Treemap if tipo == "treemap" else go.Sunburst
     colores = colores_nodos_subcategorias(ids, parents)
+    if tipo == "treemap":
+        colores_raiz = {node: color for node, parent, color in zip(ids, parents, colores) if parent == ""}
+        colores = [colores_raiz.get(parent or node, "#818cf8") for node, parent in zip(ids, parents)]
     fig = go.Figure(
         trace_cls(
             ids=ids,
@@ -969,6 +1261,10 @@ def fig_jerarquia_categorias(df, presupuesto_cat, presupuesto_sub, tipo="treemap
             hoverlabel=dict(bgcolor="#111111", bordercolor="#38BDF8", font=dict(size=13, color="#f8fafc")),
             branchvalues="total",
             marker=dict(colors=colores, line=dict(color="#050505", width=1.5)),
+            texttemplate=(
+                "<b>%{label}</b><br>%{percentEntry:.1%}"
+                if tipo == "sunburst" else "<b>%{label}</b><br>$%{value:,.0f}"
+            ),
         )
     )
     fig.update_layout(
@@ -1106,7 +1402,7 @@ def parse_historico_presupuesto(file):
     El valor mensual tiene prioridad; si está vacío, se usa propuesto.
     """
     try:
-        raw = pd.read_excel(file, sheet_name="Historico_presupuesto")
+        raw = _leer_hoja_excel(file, sheet_name="Historico_presupuesto")
     except Exception:
         return pd.DataFrame(columns=["CATEGORIA", "CONCEPTO", "ANIO", "MES", "PRESUPUESTO", "FUENTE"])
 
@@ -1254,7 +1550,7 @@ def presupuesto_subcategoria_mes(historico, categoria, subcategoria, mes, anio=N
 
 
 def parse_presupuesto_datos(file):
-    df = pd.read_excel(file, sheet_name="Datos", header=None)
+    df = _leer_hoja_excel(file, sheet_name="Datos", header=None)
     presupuesto_cat = {}
     presupuesto_sub = {}
 
@@ -1295,7 +1591,7 @@ def leer_presupuesto_mensual_general(file):
     contra el presupuesto total disponible del mes.
     """
     try:
-        datos = pd.read_excel(file, sheet_name="Datos", header=None)
+        datos = _leer_hoja_excel(file, sheet_name="Datos", header=None)
         valor = pd.to_numeric(datos.iloc[18, 14], errors="coerce")  # O19
         return float(valor) if pd.notna(valor) else 0.0
     except Exception:
@@ -1463,7 +1759,7 @@ def parse_ingresos_hoja(file, anio_ref=2026):
     INGRESOS_CATEGORIA, INGRESOS_FUENTE, ANIO
     """
     try:
-        raw = pd.read_excel(file, sheet_name="Ingresos", header=None)
+        raw = _leer_hoja_excel(file, sheet_name="Ingresos", header=None)
     except Exception:
         return pd.DataFrame(columns=[
             "MES", "INGRESOS_FECHA", "INGRESOS_CANTIDAD", "INGRESOS_DESCRIPCION",
@@ -1936,7 +2232,7 @@ def leer_deudas_excel(file):
     hoja_origen = None
     for hoja in ("Pasivos", "Deudas"):
         try:
-            raw = pd.read_excel(file, sheet_name=hoja)
+            raw = _leer_hoja_excel(file, sheet_name=hoja)
             hoja_origen = hoja
             break
         except Exception:
@@ -2033,7 +2329,7 @@ def convertir_deudas_a_patrimonio(deudas):
     return pasivos[columnas].reset_index(drop=True)
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False, max_entries=3, hash_funcs={pd.ExcelFile: lambda libro: libro._altium_huella})
 def leer_patrimonio_excel(file, trm_usd_cop=None):
     """Lee la hoja Patrimonio si existe y prepara datos para gráficos ejecutivos."""
     columnas = [
@@ -2044,7 +2340,7 @@ def leer_patrimonio_excel(file, trm_usd_cop=None):
         "Tasa a COP", "Conversión disponible",
     ]
     try:
-        raw = pd.read_excel(file, sheet_name="Patrimonio")
+        raw = _leer_hoja_excel(file, sheet_name="Patrimonio")
     except Exception:
         return pd.DataFrame(columns=columnas)
 
@@ -2079,7 +2375,7 @@ def leer_patrimonio_excel(file, trm_usd_cop=None):
     fondo_mask = patrimonio["Categoría"].map(normalizar).eq("FONDO DE EMERGENCIA")
     if fondo_mask.any() and patrimonio.loc[fondo_mask, "Valor actual"].eq(0).any():
         try:
-            dale_aportes = pd.read_excel(file, sheet_name="Dale", usecols="A", header=None)
+            dale_aportes = _leer_hoja_excel(file, sheet_name="Dale", usecols="A", header=None)
             fondo_dale = float(pd.to_numeric(dale_aportes.iloc[:, 0], errors="coerce").fillna(0).sum())
             patrimonio.loc[fondo_mask & patrimonio["Valor actual"].eq(0), "Valor actual"] = fondo_dale
         except Exception:
@@ -2447,6 +2743,27 @@ def calcular_distribucion_renta_patrimonio(patrimonio):
     return pd.DataFrame(filas, columns=columnas)
 
 
+def modernizar_dona_patrimonio(fig):
+    """Acabado común para las donas de la pestaña Patrimonio."""
+    fig.update_traces(
+        hole=0.68, rotation=35,
+        texttemplate="<b>%{percent:.1%}</b>", textposition="inside",
+        textfont=dict(color="#f0faff", size=14, family="Arial, sans-serif"),
+        marker_line_color="#0b1728", marker_line_width=4,
+    )
+    fig.update_layout(
+        height=460, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=55, b=80, l=25, r=25),
+        legend=dict(orientation="h", y=-0.14, x=0.5, xanchor="center",
+                    font=dict(color="#c9ddeb", size=12)),
+        uniformtext=dict(minsize=11, mode="hide"),
+        hoverlabel=dict(bgcolor="#10263c", bordercolor="#68e5ff", align="left",
+                        font=dict(color="#eef7ff", size=14, family="Arial, sans-serif")),
+    )
+    fig.update_annotations(font=dict(color="#f0faff", size=24))
+    return fig
+
+
 def fig_patrimonio_donut(resumen_tipo):
     if resumen_tipo.empty:
         return go.Figure()
@@ -2464,9 +2781,11 @@ def fig_patrimonio_donut(resumen_tipo):
         textinfo="percent+label",
         textfont=dict(color="#ffffff", size=12),
         marker=dict(line=dict(color="#000000", width=2)),
-        hovertemplate="<b>%{label}</b><br>Valor: $%{value:,.0f}<br>Participación: %{percent}<extra></extra>",
+        hovertemplate="<b>%{label}</b><br><br><b>$%{value:,.0f}</b><br>Participación: <b>%{percent:.1%}</b><extra></extra>",
     )
-    return estilo_grafico(fig, "Composición: activos vs pasivos")
+    fig = estilo_grafico(fig, "Composición: activos vs pasivos")
+    fig.add_annotation(x=.5, y=.5, text="<b>Composición</b><br><span style='font-size:12px'>activos y pasivos</span>", showarrow=False)
+    return modernizar_dona_patrimonio(fig)
 
 
 def fig_patrimonio_categoria(patrimonio):
@@ -2821,7 +3140,7 @@ def puntaje_fondo_emergencia(fondo, gasto_mensual_promedio):
 def leer_metas_excel(file):
     cols = ["Meta", "Objetivo", "Actual", "Avance"]
     try:
-        raw = pd.read_excel(file, sheet_name="Metas")
+        raw = _leer_hoja_excel(file, sheet_name="Metas")
     except Exception:
         return pd.DataFrame(columns=cols)
     if raw.empty:
@@ -3116,7 +3435,7 @@ def calcular_edad(fecha_nacimiento, fecha_referencia=None):
     return int(edad) if edad >= 0 else None
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False, max_entries=3, hash_funcs={pd.ExcelFile: lambda libro: libro._altium_huella})
 def leer_datos_personales(file):
     """Lee nombre y edad desde la hoja Personales.
 
@@ -3130,7 +3449,7 @@ def leer_datos_personales(file):
     """
     resultado = {"nombre": "Sin registrar", "fecha_nacimiento": pd.NaT, "edad": None}
     try:
-        raw = pd.read_excel(file, sheet_name="Personales", header=None)
+        raw = _leer_hoja_excel(file, sheet_name="Personales", header=None)
     except Exception:
         return resultado
 
@@ -3157,7 +3476,7 @@ def leer_datos_personales(file):
     return resultado
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False, max_entries=3, hash_funcs={pd.ExcelFile: lambda libro: libro._altium_huella})
 def leer_felicidad_trabajos(file):
     """Lee la matriz de trabajos/ingresos de la hoja Transaccional.
 
@@ -3169,7 +3488,7 @@ def leer_felicidad_trabajos(file):
     """
     columnas = ["FECHA", "VALOR", "EMPRESA", "MES", "CATEGORIA", "HORAS", "VALOR_HORA"]
     try:
-        raw = pd.read_excel(file, sheet_name="Transaccional", header=None)
+        raw = _leer_hoja_excel(file, sheet_name="Transaccional", header=None)
     except Exception:
         return pd.DataFrame(columns=columnas)
 
@@ -3393,22 +3712,45 @@ def convertir_trabajos_a_ingresos(trabajos):
     return ingresos[columnas].reset_index(drop=True)
 
 
-@st.cache_data
-def cargar_excel(file, trm_usd_cop=None):
+def _leer_hoja_excel(file, **kwargs):
+    """Reutiliza hojas idénticas durante una carga; entrega copias independientes."""
+    if isinstance(file, pd.ExcelFile) and hasattr(file, "_altium_hojas"):
+        clave = tuple(sorted((k, repr(v)) for k, v in kwargs.items()))
+        if clave not in file._altium_hojas:
+            file._altium_hojas[clave] = pd.read_excel(file, **kwargs)
+        return file._altium_hojas[clave].copy()
+    return pd.read_excel(file, **kwargs)
+
+
+@st.cache_data(show_spinner=False, max_entries=3)
+def cargar_excel(file, trm_usd_cop=None, incluir_deudas=False):
+    """Abre el libro una sola vez y cachea resultados, nunca el archivo abierto."""
+    with pd.ExcelFile(file) as libro:
+        origen = file
+        contenido = origen.getvalue() if hasattr(origen, "getvalue") else str(origen).encode("utf-8")
+        libro._altium_huella = hashlib.sha256(contenido).hexdigest()
+        libro._altium_hojas = {}
+        datos = _cargar_excel_abierto(libro, trm_usd_cop=trm_usd_cop)
+        if incluir_deudas:
+            return (*datos, leer_deudas_excel(libro))
+        return datos
+
+
+def _cargar_excel_abierto(file, trm_usd_cop=None):
     """Carga el Excel de Altium de forma flexible.
 
     Esta versión acepta la Transaccional con gastos en A:H y el bloque de trabajos/ingresos en K:Q.
     También conserva compatibilidad con versiones anteriores de la plantilla.
     """
     try:
-        df_raw = pd.read_excel(file, sheet_name="Transaccional")
+        df_raw = _leer_hoja_excel(file, sheet_name="Transaccional")
     except Exception:
-        df_raw = pd.read_excel(file, sheet_name="Transaccional", skiprows=1)
+        df_raw = _leer_hoja_excel(file, sheet_name="Transaccional", skiprows=1)
 
     # Si por alguna razón la primera fila no quedó como encabezado, intenta el formato anterior.
     cols_norm = [normalizar(c) for c in df_raw.columns]
     if "MES" not in cols_norm and df_raw.shape[1] >= 12:
-        df_raw = pd.read_excel(file, sheet_name="Transaccional", skiprows=1)
+        df_raw = _leer_hoja_excel(file, sheet_name="Transaccional", skiprows=1)
 
     # Renombrado por posición para evitar problemas con columnas duplicadas: FECHA, CANTIDAD, etc.
     if df_raw.shape[1] >= 13:

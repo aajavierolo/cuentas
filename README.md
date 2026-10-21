@@ -1,4 +1,4 @@
-# Altium Financiero V16
+# Altium Financiero V19
 
 Dashboard financiero en Streamlit con la pestaña Felicidad reorganizada y la Brújula Altium.
 

@@ -27,9 +27,11 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
+from reportlab.pdfbase.pdfmetrics import stringWidth
+import math
 from reportlab.platypus import (
     BaseDocTemplate, Frame, Image, KeepTogether, PageBreak, PageTemplate,
-    Paragraph, Spacer, Table, TableStyle,
+    Paragraph, Spacer, Table, TableStyle, Flowable,
 )
 
 PAGE = landscape(A4)
@@ -41,15 +43,15 @@ RED = colors.HexColor("#FB7185")
 YELLOW = colors.HexColor("#FDE68A")
 PURPLE = colors.HexColor("#C084FC")
 TEXT = colors.HexColor("#E2E8F0")
-MUTED = colors.HexColor("#64748B")
+MUTED = colors.HexColor("#B4C9D9")
 WHITE = colors.white
-INK = colors.HexColor("#172033")
+INK = colors.HexColor("#E2E8F0")
 
 # Paleta de impresión: contrastes altos sobre fondo claro.
-PDF_BLUE = "#2563EB"
+PDF_BLUE = "#39D7FF"
 PDF_CYAN = "#06B6D4"
-PDF_GREEN = "#00B85A"
-PDF_RED = "#E6002D"
+PDF_GREEN = "#52E0A4"
+PDF_RED = "#FF526E"
 PDF_ORANGE = "#F97316"
 PDF_PURPLE = "#8B5CF6"
 PDF_YELLOW = "#EAB308"
@@ -63,8 +65,7 @@ QUESTIONS = [
     ("5. Ingresos", "¿De dónde proviene el dinero?", "Identifica las principales fuentes y su participación."),
     ("6. Deudas", "¿Qué obligaciones tengo?", "Resume saldos, intereses, pagos y prioridades."),
     ("7. Patrimonio", "¿Cuál es mi riqueza?", "Presenta la composición patrimonial disponible en el archivo."),
-    ("8. Score", "¿Qué tan saludable es mi situación financiera?", "Integra ahorro, gasto, deuda y balance en una lectura referencial."),
-    ("9. Felicidad", "¿Mi dinero está alineado con mi bienestar?", "Relaciona empresa, horas trabajadas, valor por hora, tipo de ingreso y patrimonio esperado."),
+    ("8. Felicidad", "¿Mi dinero está alineado con mi bienestar?", "Relaciona empresa, horas trabajadas, valor por hora, tipo de ingreso y patrimonio esperado."),
 ]
 
 
@@ -112,12 +113,19 @@ def _safe_text(value: Any, max_len: int = 85) -> str:
 
 def _footer(canvas, doc):
     canvas.saveState()
-    width, _ = PAGE
+    width, height = PAGE
+    for i in range(64):
+        t = i / 63
+        canvas.setFillColor(colors.Color(.028 + .025*t, .055 + .045*t, .10 + .07*t))
+        canvas.rect(0, height*i/64, width, height/64+1, fill=1, stroke=0)
+    canvas.setStrokeColor(BLUE)
+    canvas.setLineWidth(.8)
+    canvas.line(1.2*cm, height-.35*cm, width-1.2*cm, height-.35*cm)
     canvas.setFillColor(DARK)
     canvas.rect(0, 0, width, 0.65 * cm, fill=1, stroke=0)
     canvas.setFillColor(colors.HexColor("#CBD5E1"))
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V16 - Informe por preguntas")
+    canvas.drawString(1.2 * cm, 0.25 * cm, "Altium Financiero V19 - Informe por preguntas")
     canvas.drawRightString(width - 1.2 * cm, 0.25 * cm, f"Página {doc.page}")
     canvas.restoreState()
 
@@ -125,7 +133,7 @@ def _footer(canvas, doc):
 def _styles() -> Dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle("Title", parent=base["Title"], fontName="Helvetica-Bold", fontSize=24, leading=28, textColor=DARK, alignment=TA_CENTER, spaceAfter=8),
+        "title": ParagraphStyle("Title", parent=base["Title"], fontName="Helvetica-Bold", fontSize=24, leading=28, textColor=TEXT, alignment=TA_CENTER, spaceAfter=8),
         "subtitle": ParagraphStyle("Subtitle", parent=base["Normal"], fontName="Helvetica", fontSize=10.5, leading=15, textColor=MUTED, alignment=TA_CENTER),
         "section": ParagraphStyle("Section", parent=base["Heading1"], fontName="Helvetica-Bold", fontSize=16, leading=19, textColor=BLUE, spaceBefore=3, spaceAfter=3),
         "question": ParagraphStyle("Question", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=13, leading=17, textColor=INK, spaceAfter=3),
@@ -133,7 +141,7 @@ def _styles() -> Dict[str, ParagraphStyle]:
         "body": ParagraphStyle("Body", parent=base["BodyText"], fontName="Helvetica", fontSize=8.7, leading=12.5, textColor=INK),
         "small": ParagraphStyle("Small", parent=base["BodyText"], fontName="Helvetica", fontSize=7.2, leading=9.2, textColor=INK),
         "table_header": ParagraphStyle("TH", parent=base["BodyText"], fontName="Helvetica-Bold", fontSize=7.2, leading=9, textColor=WHITE),
-        "card_title": ParagraphStyle("CardTitle", parent=base["BodyText"], fontName="Helvetica-Bold", fontSize=7.5, leading=9, textColor=colors.HexColor("#CBD5E1"), alignment=TA_CENTER),
+        "card_title": ParagraphStyle("CardTitle", parent=base["BodyText"], fontName="Helvetica-Bold", fontSize=9, leading=11, textColor=colors.HexColor("#DCECF5"), alignment=TA_CENTER),
         "card_value": ParagraphStyle("CardValue", parent=base["BodyText"], fontName="Helvetica-Bold", fontSize=14, leading=17, textColor=WHITE, alignment=TA_CENTER),
     }
 
@@ -146,7 +154,7 @@ def _question_header(index: int, styles):
         [Paragraph(answer, styles["answer"])],
     ], colWidths=[PAGE[0] - 2.4 * cm])
     box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EFF8FF")),
+        ("BACKGROUND", (0, 0), (-1, -1), PANEL),
         ("BOX", (0, 0), (-1, -1), 0.8, BLUE),
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
@@ -156,28 +164,125 @@ def _question_header(index: int, styles):
     return box
 
 
+class _DashboardCards(Flowable):
+    """Tarjetas vectoriales con degradado y tamaño de texto adaptable."""
+    def __init__(self, items, styles, width=None):
+        Flowable.__init__(self)
+        self.items = list(items)
+        self.styles = styles
+        self.width = width or PAGE[0] - 2.4 * cm
+        self.height = 2.75 * cm
+
+    def draw(self):
+        c = self.canv
+        n = max(len(self.items), 1)
+        gap = 10
+        width = (self.width - gap * (n - 1)) / n
+        height = self.height - 5
+        for i, (title, value) in enumerate(self.items):
+            x = i * (width + gap)
+            accent = colors.HexColor("#68e5ff")
+            tone = "blue"
+            if title in ("Ingresos", "Gastos", "Disponible"):
+                tone = "red" if title == "Gastos" or (title == "Disponible" and "-" in str(value)) else "green"
+                accent = RED if tone == "red" else GREEN
+            c.setFillColor(colors.HexColor("#030b15"))
+            c.roundRect(x+2, 0, width, height, 12, fill=1, stroke=0)
+            c.saveState()
+            path = c.beginPath()
+            path.roundRect(x, 3, width, height, 12)
+            c.clipPath(path, stroke=0)
+            for strip in range(56):
+                t = strip / 55
+                c.setFillColor(colors.Color(.035 + .045*t, .075 + .09*t, .135 + .13*t))
+                if tone == "green":
+                    c.setFillColor(colors.Color(.035, .12 + .12*t, .09 + .07*t))
+                elif tone == "red":
+                    c.setFillColor(colors.Color(.13 + .13*t, .04 + .04*t, .075 + .06*t))
+                c.rect(x + width*strip/56, 3, width/56+1, height, fill=1, stroke=0)
+            c.restoreState()
+            c.setStrokeColor(accent)
+            c.setLineWidth(.8)
+            c.roundRect(x, 3, width, height, 12, fill=0, stroke=1)
+            label = Paragraph(_safe_text(title), self.styles["card_title"])
+            _, label_h = label.wrap(width-16, 26)
+            label.drawOn(c, x+8, 3+height-12-label_h)
+            size = 21
+            while stringWidth(str(value), "Helvetica-Bold", size) > width-20 and size > 10:
+                size -= .5
+            c.setFont("Helvetica-Bold", size)
+            # Blanco a celeste, coherente con las tarjetas del dashboard.
+            c.setFillColor(accent if tone != "blue" else colors.HexColor("#b8efff"))
+            c.drawCentredString(x+width/2, 3+height*.29, str(value))
+
+
 def _kpi_table(items: Iterable[tuple[str, str]], styles):
-    items = list(items)
-    usable = PAGE[0] - 2.4 * cm
-    table = Table([
-        [Paragraph(t, styles["card_title"]) for t, _ in items],
-        [Paragraph(v, styles["card_value"]) for _, v in items],
-    ], colWidths=[usable / max(len(items), 1)] * len(items), rowHeights=[0.56 * cm, 0.88 * cm])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PANEL),
-        ("BOX", (0, 0), (-1, -1), 0.7, BLUE),
-        ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#24445F")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+    return _DashboardCards(items, styles)
+
+
+class _PdfGauge(Flowable):
+    """Medidor vectorial con las mismas franjas que el dashboard."""
+    def __init__(self, title, value, cuts, colors_hex, suffix="%", width=470, height=220):
+        Flowable.__init__(self)
+        self.title, self.value, self.cuts = title, value, cuts
+        self.colors_hex, self.suffix = colors_hex, suffix
+        self.width, self.height = width, height
+
+    def draw(self):
+        c = self.canv
+        c.setFillColor(colors.HexColor("#0b1728"))
+        c.roundRect(0, 0, self.width, self.height, 14, fill=1, stroke=0)
+        c.setFillColor(TEXT)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawCentredString(self.width/2, self.height-20, self.title)
+        if self.value is None:
+            c.setFont("Helvetica", 12)
+            c.drawCentredString(self.width/2, self.height/2, "No calculable")
+            return
+        maximum = self.cuts[-1]
+        cx, cy = self.width/2, 28
+        radius = min(self.width*.40, self.height*.64)
+        for lo, hi, color in zip(self.cuts, self.cuts[1:], self.colors_hex):
+            theta = [math.pi*(1-(lo+(hi-lo)*i/60)/maximum) for i in range(61)]
+            points = [(cx+radius*math.cos(t), cy+radius*math.sin(t)) for t in theta]
+            points += [(cx+radius*.7*math.cos(t), cy+radius*.7*math.sin(t)) for t in reversed(theta)]
+            path = c.beginPath(); path.moveTo(*points[0])
+            for point in points[1:]: path.lineTo(*point)
+            path.close()
+            c.setFillColor(colors.HexColor(color)); c.setStrokeColor(DARK); c.setLineWidth(1.5)
+            c.drawPath(path, fill=1, stroke=1)
+        needle = math.pi*(1-min(max(self.value, 0), maximum)/maximum)
+        c.setStrokeColor(WHITE); c.setLineWidth(2.5)
+        c.line(cx, cy, cx+radius*.96*math.cos(needle), cy+radius*.96*math.sin(needle))
+        c.setFillColor(WHITE); c.circle(cx, cy, 4, fill=1, stroke=0)
+        c.setFont("Helvetica", 9)
+        for cut in self.cuts:
+            theta=math.pi*(1-cut/maximum)
+            c.drawCentredString(cx+(radius+14)*math.cos(theta), cy+(radius+14)*math.sin(theta), f"{cut:g}{self.suffix}")
+        c.setFont("Helvetica-Bold", 23)
+        c.drawCentredString(cx, cy+35, f"{self.value:.2f}{self.suffix}")
+
+
+def _indice_con_medidor(story, styles, title, value, status, explanation, cuts, suffix="%", palette=None):
+    usable = PAGE[0]-2.4*cm
+    left = 8.6*cm
+    text = f"<b>{_safe_text(status, 150)}</b><br/><br/>{explanation}"
+    card = _DashboardCards([(title, f"{value:.2f}{suffix}" if value is not None else "No calculable")], styles, width=left-20)
+    gauge = _PdfGauge(title, value, cuts, palette or ["#39FF14", "#FFEA00", "#FF8C00", "#FF1744"], suffix, width=usable-left-20)
+    row = Table([[[card, Spacer(1, 8), Paragraph(text, styles["body"])], gauge]], colWidths=[left,usable-left])
+    row.setStyle(TableStyle([
+        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+        ("BACKGROUND",(0,0),(0,0),PANEL),
+        ("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),
+        ("TOPPADDING",(0,0),(-1,-1),10),("BOTTOMPADDING",(0,0),(-1,-1),10),
     ]))
-    return table
+    story.extend([row,Spacer(1,12)])
 
 
 def _hero_table(nombre_persona: str, edad_persona: Any, fecha_desde: Any, fecha_hasta: Any, styles):
     """Portada compacta con la misma identidad oscura y neon del dashboard."""
     usable = PAGE[0] - 2.4 * cm
-    hero_title = Paragraph("ALTIUM FINANCIERO V16", ParagraphStyle(
+    hero_title = Paragraph("ALTIUM FINANCIERO V19", ParagraphStyle(
         "HeroTitle", parent=styles["title"], fontSize=25, leading=29,
         textColor=WHITE, alignment=TA_LEFT, spaceAfter=3,
     ))
@@ -212,9 +317,9 @@ def _insight_box(title: str, body: str, styles, tone: str = "blue"):
     """Bloque breve para explicar el significado de los datos, no solo mostrarlos."""
     accents = {"blue": BLUE, "green": GREEN, "red": RED, "yellow": colors.HexColor("#EAB308"), "purple": PURPLE}
     backgrounds = {
-        "blue": colors.HexColor("#EFF8FF"), "green": colors.HexColor("#ECFDF5"),
-        "red": colors.HexColor("#FFF1F2"), "yellow": colors.HexColor("#FFFBEB"),
-        "purple": colors.HexColor("#FAF5FF"),
+        "blue": PANEL, "green": colors.HexColor("#103e32"),
+        "red": colors.HexColor("#491923"), "yellow": colors.HexColor("#382e13"),
+        "purple": colors.HexColor("#261e43"),
     }
     accent = accents.get(tone, BLUE)
     background = backgrounds.get(tone, backgrounds["blue"])
@@ -253,10 +358,13 @@ def _format_df(df: pd.DataFrame, money_cols: Optional[Iterable[str]] = None) -> 
     return out
 
 
-def _df_table(df: pd.DataFrame, styles, money_cols=None, max_rows=25, col_widths=None):
+def _df_table(df: pd.DataFrame, styles, money_cols=None, max_rows=25, col_widths=None, pct_cols=None):
     if df is None or df.empty:
         return Paragraph("No se encontraron datos para esta sección.", styles["body"])
     view = _format_df(df.head(max_rows), money_cols)
+    for col in pct_cols or []:
+        if col in view.columns:
+            view[col] = pd.to_numeric(df.head(max_rows)[col], errors="coerce").map(lambda v: f"{v:.1f}%" if pd.notna(v) else "Sin dato")
     data = [[Paragraph(_safe_text(c), styles["table_header"]) for c in view.columns]]
     for row in view.itertuples(index=False, name=None):
         data.append([Paragraph(_safe_text(v), styles["small"]) for v in row])
@@ -265,8 +373,8 @@ def _df_table(df: pd.DataFrame, styles, money_cols=None, max_rows=25, col_widths
     table = Table(data, repeatRows=1, colWidths=widths)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#173A59")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#F8FAFC"), colors.HexColor("#E8F0F7")]),
-        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#90A4B7")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#0d1b2e"), colors.HexColor("#10263c")]),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#24445f")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 3),
         ("RIGHTPADDING", (0, 0), (-1, -1), 3),
@@ -282,23 +390,33 @@ def _wrap_labels(values, width: int = 24):
 
 
 def _style_print_axis(ax, grid_axis="y"):
-    ax.set_facecolor("#F8FAFC")
-    ax.figure.patch.set_facecolor("white")
+    ax.set_facecolor("#0b1728")
+    ax.figure.patch.set_facecolor("#0b1728")
     ax.grid(axis=grid_axis, color="#CBD5E1", alpha=0.55, linewidth=0.7)
     ax.set_axisbelow(True)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
     ax.spines["left"].set_color("#94A3B8")
     ax.spines["bottom"].set_color("#94A3B8")
-    ax.tick_params(axis="both", labelsize=8.5, colors="#334155")
-    ax.xaxis.label.set_color("#334155")
-    ax.yaxis.label.set_color("#334155")
+    ax.tick_params(axis="both", labelsize=8.5, colors="#dcecf5")
+    ax.xaxis.label.set_color("#dcecf5")
+    ax.yaxis.label.set_color("#dcecf5")
     ax.yaxis.set_major_formatter(mtick.StrMethodFormatter("${x:,.0f}")) if grid_axis == "y" else None
 
 
 def _save_fig(fig) -> BytesIO:
+    from matplotlib.text import Text
+    fig.patch.set_facecolor("#0b1728")
+    for ax in fig.axes:
+        ax.set_facecolor("#0b1728")
+        for text in ax.findobj(match=Text):
+            text.set_color("#e2e8f0")
+        legend = ax.get_legend()
+        if legend:
+            legend.get_frame().set_facecolor("#0b1728")
+            legend.get_frame().set_edgecolor("#24445f")
     buff = BytesIO()
-    fig.savefig(buff, format="png", dpi=170, bbox_inches="tight", facecolor="white")
+    fig.savefig(buff, format="png", dpi=170, bbox_inches="tight", facecolor="#0b1728")
     plt.close(fig)
     buff.seek(0)
     return buff
@@ -649,7 +767,7 @@ def _chart_goal_progress(metas: pd.DataFrame) -> Optional[BytesIO]:
     y = list(range(len(tmp)))
     fig, ax = plt.subplots(figsize=(11.2, max(4.2, .50 * len(tmp) + 1.8)))
     ax.barh(y, tmp["Actual visible"], color=PDF_GREEN, height=.62, label="Actual", edgecolor="white", linewidth=.8)
-    ax.barh(y, tmp["Faltante"], left=tmp["Actual visible"], color="#E2E8F0", height=.62, label="Faltante", edgecolor="white", linewidth=.8)
+    ax.barh(y, tmp["Faltante"], left=tmp["Actual visible"], color="#24445f", height=.62, label="Faltante", edgecolor="#426481", linewidth=.8)
     ax.set_yticks(y, _wrap_labels(tmp["Meta"], 27))
     ax.set_xlabel("Valor")
     ax.set_title("Progreso de metas financieras", fontsize=12.5, fontweight="bold", color="#0F172A", pad=12)
@@ -1017,7 +1135,12 @@ def _chart_projection(data: Dict[str, Any], compound: bool = False) -> Optional[
 
 def _add_chart(story, buff: Optional[BytesIO], width=24.6 * cm, height=8.0 * cm):
     if buff:
-        story.extend([Spacer(1, .25 * cm), Image(buff, width=width, height=height), Spacer(1, .2 * cm)])
+        image = Image(buff)
+        scale = min(width / image.imageWidth, height / image.imageHeight)
+        image.drawWidth = image.imageWidth * scale
+        image.drawHeight = image.imageHeight * scale
+        image.hAlign = "CENTER"
+        story.extend([Spacer(1, .25 * cm), image, Spacer(1, .2 * cm)])
 
 
 def generar_informe_financiero_pdf(
@@ -1029,13 +1152,14 @@ def generar_informe_financiero_pdf(
     presupuesto_categoria: Optional[Dict[str, Any]] = None,
     score_financiero: Optional[float] = None,
     componentes_score: Optional[Iterable[Dict[str, Any]]] = None,
+    dashboard_data: Optional[Dict[str, Any]] = None,
 ) -> bytes:
     styles = _styles()
     output = BytesIO()
     doc = BaseDocTemplate(
         output, pagesize=PAGE, leftMargin=1.2 * cm, rightMargin=1.2 * cm,
         topMargin=.9 * cm, bottomMargin=.9 * cm,
-        title="Altium Financiero V16 - Informe por preguntas", author="Altium Financiero",
+        title="Altium Financiero V19 - Informe por preguntas", author="Altium Financiero",
     )
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="normal")
     doc.addPageTemplates(PageTemplate(id="main", frames=[frame], onPage=_footer))
@@ -1049,7 +1173,7 @@ def generar_informe_financiero_pdf(
             ("Capacidad de ahorro", f"{(balance / total_ingresos * 100):.1f}%" if total_ingresos else "0,0%"),
         ], styles),
         Spacer(1, .6 * cm),
-        Paragraph("Una lectura visual de las nueve preguntas del dashboard, con indicadores, graficos comparativos y escenarios de ahorro a largo plazo. Las proyecciones son orientativas y dependen del periodo filtrado.", styles["body"]),
+        Paragraph("Una lectura visual de las ocho secciones del dashboard, con indicadores, graficos comparativos y escenarios de ahorro a largo plazo. Las proyecciones son orientativas y dependen del periodo filtrado.", styles["body"]),
         PageBreak(),
     ]
 
@@ -1062,6 +1186,21 @@ def generar_informe_financiero_pdf(
         ("Presupuesto del periodo", _money(presupuesto_periodo)),
         ("Saldo de deudas", _money(deuda_saldo)),
     ], styles))
+    if flujo is not None and not flujo.empty:
+        ahorro_mes = float(flujo["Balance"].mean())
+        meses_ingreso = flujo.loc[flujo["Ingresos"].gt(0), "Ingresos"]
+        ingreso_medio = float(meses_ingreso.mean()) if not meses_ingreso.empty else 0.0
+        story.extend([
+            Spacer(1, .3*cm), Paragraph("Ahorro y liquidez", styles["section"]),
+            _kpi_table([
+                ("Ahorro mensual", _money(ahorro_mes)),
+                ("Ahorro anual", _money(ahorro_mes*12)),
+                ("Referencia para invertir", _money(ingreso_medio*.20)),
+                ("Referencia para ahorrar", _money(ingreso_medio*.10)),
+            ], styles),
+            Spacer(1, .15*cm),
+            Paragraph("Referencias del dashboard: 20% y 10% del ingreso promedio de los meses con ingresos. Ahorro anual proyectado a partir del balance mensual medio.", styles["small"]),
+        ])
     _add_chart(story, _chart_flow(flujo))
     if total_ingresos:
         gasto_pct_resumen = total_gastos / total_ingresos * 100
@@ -1243,13 +1382,17 @@ def generar_informe_financiero_pdf(
         hhi_pdf = float(participaciones_pdf.pow(2).sum() * 10000) if not participaciones_pdf.empty else 10000.0
         mensual_pdf = ing.groupby("PERIODO")["INGRESOS_CANTIDAD"].sum() if "PERIODO" in ing.columns else pd.Series(dtype=float)
         cv_pdf = float(mensual_pdf.std(ddof=0) / mensual_pdf.mean() * 100) if len(mensual_pdf) > 1 and mensual_pdf.mean() else 0.0
-        score_pdf = max(0.0, min(100.0,
+        recurrencia_pdf = (
+            float(ing.dropna(subset=["INGRESOS_FECHA"]).groupby(fuente_col)["PERIODO"].nunique().mean())
+            if fuente_col and "INGRESOS_FECHA" in ing.columns and not ing.empty else 0.0
+        )
+        score_pdf = round(max(0.0, min(100.0,
             30 * (1 - min(hhi_pdf, 10000) / 10000)
             + 30 * (1 - min(cv_pdf, 100) / 100)
-            + 20 * min(numero_fuentes_pdf / 5, 1)
+            + 20 * min(recurrencia_pdf / meses_ing_pdf, 1)
             + 15 * (1 - pct_principal_pdf / 100)
             + (5 if sin_clasificar_pdf == 0 else max(0, 5 * (1 - sin_clasificar_pdf / total_ing_pdf)))
-        ))
+        )), 1)
         story.append(_kpi_table([
             ("Ingresos totales", _money(total_ing_pdf)),
             ("Promedio mensual", _money(promedio_ing_pdf)),
@@ -1394,38 +1537,35 @@ def generar_informe_financiero_pdf(
             story += [Spacer(1, .2 * cm), _insight_box("Qué está ocurriendo con el patrimonio", patrimonio_texto, styles, patrimonio_tono)]
         money_pat_cols = [c for c in ["Valor actual", "Saldo pendiente", "Valor neto", "VALOR", "Valor", "MONTO", "Monto", "SALDO", "Saldo"] if c in pat_pdf.columns]
         story += [Spacer(1, .3 * cm), Paragraph("Detalle patrimonial", styles["section"])]
-        story.append(_df_table(pat_pdf, styles, money_cols=money_pat_cols, max_rows=30))
+        detalle_cols = [c for c in [nombre_col, tipo_col, "Moneda", "Valor actual", "Saldo pendiente", "Valor neto"] if c and c in pat_pdf.columns]
+        detalle_cols = list(dict.fromkeys(detalle_cols))
+        story.append(_df_table(pat_pdf[detalle_cols] if detalle_cols else pat_pdf, styles, money_cols=money_pat_cols, max_rows=30))
     story.append(PageBreak())
 
-    # 8. Score
-    gasto_ingreso = (total_gastos / total_ingresos * 100) if total_ingresos else 0.0
-    ahorro_pct = (balance / total_ingresos * 100) if total_ingresos else 0.0
-    score = float(score_financiero or 0.0)
-    componentes_pdf = list(componentes_score or [])
-    story += [_question_header(7, styles), Spacer(1, .25 * cm)]
-    story.append(_kpi_table([
-        ("Score financiero", f"{score:.1f}/100"), ("Ahorro", f"{ahorro_pct:.1f}%"),
-        ("Gasto / ingreso", f"{gasto_ingreso:.1f}%"), ("Componentes", str(len(componentes_pdf))),
-    ], styles))
-    nivel_score = "excelente" if score >= 85 else "bueno" if score >= 70 else "en atención" if score >= 50 else "riesgo alto"
-    score_texto = (
-        f"El resultado de <b>{score:.1f}/100</b> ubica la situación en un nivel <b>{nivel_score}</b>. "
-        "Este valor usa exactamente los mismos seis componentes, ponderaciones y filtros de la pestaña Score."
-    )
-    story += [Spacer(1, .35 * cm), _insight_box("Interpretación del score", score_texto, styles, "green" if score >= 75 else "yellow" if score >= 50 else "red")]
-    if componentes_pdf:
-        tabla_componentes = pd.DataFrame(componentes_pdf)
-        _add_chart(story, _chart_score_components(componentes_pdf), height=8.0 * cm)
-        columnas_componentes = [c for c in ["Indicador", "Puntos", "Máximo", "Puntaje %", "Base"] if c in tabla_componentes.columns]
-        story += [Spacer(1, .3 * cm), Paragraph("Componentes del score", styles["section"])]
-        story.append(_df_table(tabla_componentes[columnas_componentes], styles, max_rows=10))
+    # 8. Felicidad
+    story += [_question_header(7, styles), Spacer(1, .2 * cm)]
+    datos_panel = dashboard_data or {}
+    if "fondo" in datos_panel:
+        fondo = float(datos_panel["fondo"])
+        gasto_mes = float(datos_panel.get("gasto_mensual", 0))
+        meta_fondo = gasto_mes * 3
+        dias_fondo = fondo / (gasto_mes / 30) if gasto_mes > 0 else 0
+        story.extend([
+            Paragraph("Fondo de emergencia", styles["section"]),
+            _kpi_table([
+                ("Fondo actual", _money(fondo)), ("Meta 3 meses", _money(meta_fondo)),
+                ("Días cubiertos", f"{dias_fondo:,.0f} días"),
+                ("Faltante", _money(max(meta_fondo-fondo, 0))),
+            ], styles),
+            Spacer(1, .2*cm),
+            Paragraph("Cobertura calculada con el mismo fondo y gasto mensual promedio del dashboard.", styles["body"]),
+        ])
     if isinstance(metas, pd.DataFrame) and not metas.empty:
-        _add_chart(story, _chart_goal_progress(metas), height=8.0 * cm)
-        story += [Spacer(1, .4 * cm), Paragraph("Metas registradas", styles["question"]), _df_table(metas, styles, max_rows=20)]
-    story.append(PageBreak())
-
-    # 9. Felicidad
-    story += [_question_header(8, styles), Spacer(1, .2 * cm)]
+        story.extend([Spacer(1, .3*cm), Paragraph("Metas financieras", styles["section"])])
+        _add_chart(story, _chart_goal_progress(metas), height=7.0*cm)
+        story.append(_df_table(metas, styles, money_cols=["Actual", "Objetivo"], max_rows=20))
+    if "fondo" in datos_panel or (isinstance(metas, pd.DataFrame) and not metas.empty):
+        story.extend([PageBreak(), Paragraph("Trabajo, tiempo y bienestar financiero", styles["section"])])
     if felicidad is None or felicidad.empty:
         story.append(Paragraph(
             "No hay registros de trabajo en las columnas K:Q de la hoja Transaccional para el periodo seleccionado.",
@@ -1439,13 +1579,18 @@ def generar_informe_financiero_pdf(
         total_valor_fel = float(fel.get("VALOR", pd.Series(dtype=float)).fillna(0).sum())
         total_horas_fel = float(fel.get("HORAS", pd.Series(dtype=float)).fillna(0).sum())
         valor_hora_fel = total_valor_fel / total_horas_fel if total_horas_fel > 0 else float(fel.get("VALOR_HORA", pd.Series(dtype=float)).mean() or 0)
-        meses_fel = max(int(fel.get("MES", pd.Series(dtype=str)).astype(str).nunique()), 1)
+        fechas_fel = pd.to_datetime(fel.get("FECHA", pd.Series(dtype="datetime64[ns]")), errors="coerce").dropna()
+        meses_fel = max((fechas_fel.max().year-fechas_fel.min().year)*12+fechas_fel.max().month-fechas_fel.min().month+1, 1) if not fechas_fel.empty else 1
         promedio_mensual_fel = total_valor_fel / meses_fel
         try:
             edad_num = float(edad_persona)
         except (TypeError, ValueError):
             edad_num = 0.0
-        idr_pdf = promedio_mensual_fel * edad_num * 1.2
+        tipos_fel = fel.get("CATEGORIA", pd.Series("", index=fel.index)).map(_income_type)
+        valor_idr_fel = float(fel.loc[tipos_fel.eq("Laborales"), "VALOR"].sum())
+        if datos_panel.get("idr_incluir_no_laborales", True):
+            valor_idr_fel += float(fel.loc[tipos_fel.eq("No laborales"), "VALOR"].sum())
+        idr_pdf = valor_idr_fel / meses_fel * edad_num * 1.2
         patrimonio_neto_pdf = 0.0
         if patrimonio is not None and not patrimonio.empty:
             for candidate in ["Valor neto", "VALOR_NETO", "Valor", "VALOR"]:
@@ -1453,7 +1598,7 @@ def generar_informe_financiero_pdf(
                     patrimonio_neto_pdf = float(pd.to_numeric(patrimonio[candidate], errors="coerce").fillna(0).sum())
                     break
         ratio_idr_pdf = patrimonio_neto_pdf / idr_pdf if idr_pdf > 0 else 0.0
-        estado_idr_pdf = "Generador de riqueza" if ratio_idr_pdf >= 2 else "Escenario típico" if ratio_idr_pdf > .55 else "Destructor de patrimonio"
+        estado_idr_pdf = "Excelente constructor de patrimonio" if ratio_idr_pdf >= 2 else "Constructor de patrimonio" if ratio_idr_pdf >= 1 else "Destructor de patrimonio"
         story.append(_kpi_table([
             ("Ingresos de trabajos", _money(total_valor_fel)),
             ("Horas registradas", f"{total_horas_fel:,.1f}"),
@@ -1470,7 +1615,45 @@ def generar_informe_financiero_pdf(
         _add_chart(story, _chart_happiness_income_mix(fel), width=14.5 * cm, height=8.0 * cm)
         fel_cols = [c for c in ["FECHA", "EMPRESA", "CATEGORIA", "HORAS", "VALOR", "VALOR_HORA"] if c in fel.columns]
         story.append(_df_table(fel[fel_cols] if fel_cols else fel, styles, money_cols=["VALOR", "VALOR_HORA"], max_rows=24))
+        story.extend([PageBreak(),Paragraph("Patrimonio neto / IDR",styles["section"]),Spacer(1,10)])
+        _indice_con_medidor(
+            story, styles, "Patrimonio neto / IDR", ratio_idr_pdf if idr_pdf>0 else None,
+            estado_idr_pdf if idr_pdf>0 else "No calculable",
+            f"Patrimonio neto: <b>{_money(patrimonio_neto_pdf)}</b>.<br/>IDR: <b>{_money(idr_pdf)}</b>.<br/><br/>Menos de 1: Destructor de patrimonio.<br/>Desde 1 hasta menos de 2: Constructor de patrimonio.<br/>Desde 2: Excelente constructor de patrimonio.<br/><br/>La aguja se limita a 3; el valor real se conserva.",
+            [0,1,2,3],suffix="x",palette=["#FF1744","#FFEA00","#39FF14"],
+        )
 
+    indicadores = datos_panel.get("indicadores")
+    if indicadores:
+        story.extend([PageBreak(),Paragraph("Indicadores de prosperidad y dependencia financiera",styles["section"]),Spacer(1,12)])
+        dependencia = indicadores["dependencia_ind"]
+        story.append(_kpi_table([
+            ("Flujo de efectivo mensual", _money(indicadores["ingreso_mensual_ind"]-indicadores["egreso_mensual_ind"])),
+            ("Patrimonio líquido", _money(indicadores["liquido_ind"])),
+            ("Prosperidad financiera", indicadores["prosperidad_texto"]),
+            ("Dependencia ingreso trabajado", f"{dependencia:.1f}%" if dependencia is not None else "No calculable"),
+        ],styles))
+        story.extend([Spacer(1,12),_insight_box(
+            "Fórmulas que definiste para Felicidad",
+            "<b>Patrimonio líquido</b> = total activos menos total pasivos. Esta definición se aplica solo a Felicidad; no equivale a efectivo disponible.<br/>"
+            "<b>Prosperidad financiera</b> = ese patrimonio dividido entre egreso promedio mensual; se expresa en meses o años y meses completos.<br/>"
+            "<b>Dependencia</b> = (ingreso trabajado menos no trabajado) dividido entre ingreso trabajado, por 100.<br/>"
+            f"Egreso promedio mensual: <b>{_money(indicadores['egreso_mensual_ind'])}</b>. Promedios calculados sobre <b>{indicadores['meses_indicadores']}</b> meses seleccionados.",styles),
+            PageBreak(),Paragraph("Deuda mensual y endeudamiento",styles["section"]),Spacer(1,8)])
+        for tipo in ["flujo","endeudamiento"]:
+            es_flujo=tipo=="flujo"
+            value=indicadores["flujo_deuda_ind" if es_flujo else "endeudamiento_ind"]
+            status=indicadores["estado_flujo_ind" if es_flujo else "estado_endeudamiento_ind"]
+            maximo=max(100,(int(value//10)+1)*10) if value is not None else 100
+            lectura=(f"Por cada $100 de ingreso mensual promedio, <b>${value:.1f}</b> corresponden a pagos estimados de deuda." if es_flujo else f"Por cada $100 del valor de tus activos, tienes <b>${value:.1f}</b> en deudas.") if value is not None else "Faltan datos positivos para calcular el índice."
+            rangos=("0%: Ideal. Más de 0 a 10%: Muy bien. Más de 10 a 30%: Adecuado. Más de 30 a 40%: Crítico. Más de 40%: Sobreendeudado." if es_flujo else "0%: Todo lo que tienes es tuyo. Más de 0 a 15%: Nivel bueno. Más de 15 a 40%: Manejable. Más de 40 a 60%: Crítico. Más de 60%: Sobreendeudado.")
+            _indice_con_medidor(story,styles,"Flujo de deuda mensual" if es_flujo else "Índice de endeudamiento",value,status,
+                lectura+"<br/><br/>"+rangos+"<br/><br/>Clasificación según tus rangos."+ (" Pagos estimados por los textos de los gastos." if es_flujo else ""),
+                [0,10,30,40,maximo] if es_flujo else [0,15,40,60,maximo])
+
+    # Evita una última página vacía cuando el último medidor llena la hoja.
+    while story and isinstance(story[-1], (Spacer, PageBreak)):
+        story.pop()
     doc.build(story)
     output.seek(0)
     return output.getvalue()
